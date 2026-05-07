@@ -2,6 +2,23 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.6] — 2026-05-07
+
+### Bug Fixes
+
+- **agents**: set max output tokens and surface abnormal finish reasons
+- **dispatch**: passthrough agent text, fix cache prefix, per-agent stats
+- **errors**: route silent catches through surface-aware sinks
+- **useChat**: classify stream errors via cause chain (#63)
+### Documentation
+
+- document key storage, keyPriority, and Windows/WSL
+### Features
+
+- **commands**: add /exit to autocomplete
+### Other
+
+- router visual improvements
 ## [2.14.5] — 2026-05-04
 
 ### Bug Fixes
