@@ -795,6 +795,7 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["hooks", "claude", "lifecycle"],
   },
   { cmd: "/quit", ic: "quit", desc: "Exit SoulForge", category: "System", tags: ["exit", "close"] },
+  { cmd: "/exit", ic: "quit", desc: "Exit SoulForge", category: "System", tags: ["quit", "close"] },
   { cmd: "/restart", ic: "ghost", desc: "Full restart", category: "System", tags: ["reboot"] },
   {
     cmd: "/setup",
