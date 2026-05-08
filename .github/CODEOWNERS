@@ -1,0 +1,30 @@
+# SoulForge code owners.
+#
+# Architecture and core IP paths require maintainer review on every PR.
+# Other paths (providers, components, docs) accept community contributions
+# with regular review. See CONTRIBUTING.md for the full governance policy.
+
+# Default — every file requires maintainer review unless overridden below.
+* @proxysoul
+
+# Architecture / core IP — locked. Discuss in an issue before any PR.
+/src/core/intelligence/      @proxysoul
+/src/core/agents/            @proxysoul
+/src/core/context/manager.ts @proxysoul
+/src/core/prompts/           @proxysoul
+/src/core/memory/recall.ts   @proxysoul
+/src/core/compaction/        @proxysoul
+/src/hearth/                 @proxysoul
+
+# Build / publish — sensitive to source-map / identifier leaks.
+/scripts/build.ts            @proxysoul
+/scripts/bundle.sh           @proxysoul
+/.github/workflows/          @proxysoul
+/package.json                @proxysoul
+
+# License / governance docs.
+/LICENSE                     @proxysoul
+/COMMERCIAL_LICENSE.md       @proxysoul
+/GOVERNANCE.md               @proxysoul
+/CONTRIBUTING.md             @proxysoul
+/CODEOWNERS                  @proxysoul

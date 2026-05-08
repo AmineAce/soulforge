@@ -13,9 +13,9 @@ The agent never wastes a turn grepping for "where does auth live" — it already
 The map appears in every system prompt, looking like this:
 
 ```
-src/core/agents/agent-bus.ts (→12)
-  +AgentBus  Shared coordination bus for parallel subagent communication
-  +SharedCache
+src/services/auth/session.ts (→12)
+  +SessionManager  Tracks active sessions, refresh tokens, expiry
+  +SessionStore
 ```
 
 - `+` — exported symbol

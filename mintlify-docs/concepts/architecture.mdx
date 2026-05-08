@@ -23,7 +23,7 @@ Configure which model each one uses in [the task router](/recipes/task-router).
 
 ## What the agents share
 
-When Forge dispatches multiple sub-agents in parallel, they coordinate through the AgentBus:
+When Forge dispatches multiple sub-agents in parallel, they coordinate through a shared bus:
 
 - **File cache** — first reader caches; others reuse.
 - **Tool cache** — read-only tool results shared across agents and dispatches.

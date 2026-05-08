@@ -109,6 +109,24 @@ const reactCompilerPlugin: BunPlugin = {
   },
 };
 
+// ── Strip absolute filesystem paths from the bundle ────────────────────
+// Bun's bundler may inline absolute paths (cwd, $HOME) into the bundle as
+// __dirname / __filename strings or comment markers. Replace them so the
+// dev machine's filesystem doesn't ship with the binary.
+const stripAbsPathsPlugin: BunPlugin = {
+  name: "strip-abs-paths",
+  setup(build) {
+    const cwd = process.cwd();
+    const home = process.env.HOME ?? "";
+    build.onLoad({ filter: /\.(ts|tsx|js|jsx)$/ }, async ({ path, loader }) => {
+      let src = await Bun.file(path).text();
+      if (cwd && src.includes(cwd)) src = src.split(cwd).join("");
+      if (home && src.includes(home)) src = src.split(home).join("~");
+      return { contents: src, loader };
+    });
+  },
+};
+
 // ── Parse args ───────────────────────────────────────────────────────
 const isCompile = process.argv.includes("--compile");
 
@@ -220,12 +238,25 @@ if (isCompile) {
   const finalPath = outfile ? resolve(outfile) : defaultBinary;
   console.log(`✓ Compiled binary with React Compiler in ${elapsed}ms → ${finalPath}`);
 } else {
+  // Production hardening: when NODE_ENV=production or --prod is passed, the
+  // npm `dist/` build is minified, sourcemap-free, identifier-mangled.
+  // This is what protects the published binary from `strings`-based source
+  // recovery and casual reverse-engineering.
+  const isProd = process.env.NODE_ENV === "production" || process.argv.includes("--prod");
+  const minify = isProd ? { whitespace: true, identifiers: true, syntax: true } : false;
+
   const result = await Bun.build({
     entrypoints: ["src/boot.tsx"],
     outdir: "dist",
     target: "bun",
     naming: "[dir]/index.[ext]",
-    plugins: [reactCompilerPlugin, devtoolsStubPlugin],
+    plugins: [
+      stripAbsPathsPlugin,
+      reactCompilerPlugin,
+      devtoolsStubPlugin,
+    ],
+    minify,
+    sourcemap: "none",
   });
 
   if (!result.success) {
@@ -244,6 +275,8 @@ if (isCompile) {
     target: "bun",
     naming: "[name].[ext]",
     plugins: [reactCompilerPlugin],
+    minify,
+    sourcemap: "none",
   });
 
   if (!workerResult.success) {
@@ -285,9 +318,45 @@ if (isCompile) {
   );
   chmodSync("dist/bin.sh", 0o755);
 
+  // Production guards: assert no inline sourcemaps and no source-form sentinel
+  // class declarations leak into the bundle. Bun preserves export NAMES even
+  // with identifier mangling — the *class body* is what we protect.
+  if (isProd) {
+    const bundle = await Bun.file("dist/index.js").text();
+    const sentinels = [
+      /\bclass\s+ContextManager\b/,
+      /\bclass\s+AgentBus\b/,
+      /\bclass\s+RepoMap\b/,
+      /\bclass\s+WorkspaceCoordinator\b/,
+      /\bfunction\s+createForgeAgent\b/,
+    ];
+    const leaks = sentinels.filter((re) => re.test(bundle)).map((re) => re.source);
+    if (leaks.length > 0) {
+      console.error(`✗ unmangled class/function declarations leaked: ${leaks.join(", ")}`);
+      process.exit(1);
+    }
+    if (bundle.includes("sourceMappingURL=data:")) {
+      console.error("✗ inline sourcemap detected in bundle");
+      process.exit(1);
+    }
+    // Post-build path scrub. The onLoad strip-paths plugin only sees our
+    // source; pre-bundled CJS deps inline absolute __dirname/__filename paths
+    // that survive into dist/index.js. Replace them.
+    const cwd = process.cwd();
+    const home = process.env.HOME ?? "";
+    let raw = bundle;
+    for (const needle of [cwd, home].filter(Boolean)) {
+      if (raw.includes(needle)) raw = raw.split(needle).join("");
+    }
+    if (raw !== bundle) {
+      await Bun.write("dist/index.js", raw);
+    }
+    console.log("✓ verified: sentinels absent, no inline sourcemap, paths stripped");
+  }
+
   const elapsed = (performance.now() - start).toFixed(0);
   const count = result.outputs.length + workerResult.outputs.length;
   console.log(
-    `✓ Built ${count} artifact${count === 1 ? "" : "s"} with React Compiler in ${elapsed}ms`,
+    `✓ Built ${count} artifact${count === 1 ? "" : "s"} with React Compiler in ${elapsed}ms (minified=${!!minify})`,
   );
 }

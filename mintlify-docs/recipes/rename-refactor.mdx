@@ -9,7 +9,7 @@ icon: "pen"
 Just ask:
 
 ```
-> rename AgentBus to CoordinationBus
+> rename UserService to AccountService
 ```
 
 The agent runs `rename_symbol` — one LSP-backed call updates every file and verifies there are no dangling references.
@@ -27,7 +27,7 @@ Moves the symbol, updates every import across the project, fixes re-exports. Ful
 ## Rename a file
 
 ```
-> rename src/old-name.ts to src/components/new-name.ts
+> rename src/old-name.ts to src/utils/new-name.ts
 ```
 
 Moves the file, updates every importer.

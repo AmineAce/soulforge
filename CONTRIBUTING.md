@@ -158,7 +158,48 @@ src/
     └── ...                   # other hooks
 ```
 
-## Rules
+## Contribution scope
+
+SoulForge is open source under BUSL-1.1 with **strict architectural governance**. The maintainer (proxysoul) owns product direction. To respect everyone's time, the scope of acceptable contributions is explicit and enforced.
+
+**Read this section before writing code.** PRs outside scope will be closed without review. This is not personal — it's how the project stays coherent with one maintainer.
+
+### In scope — open a PR directly
+
+| Area | Path |
+|---|---|
+| Bug fixes | anywhere |
+| LLM providers | `src/core/llm/providers/*.ts` |
+| UI polish, themes, keybindings, accessibility | `src/components/`, `src/hooks/`, `src/stores/` |
+| Tool fixes (perf, edge cases, error messages — no behavior changes) | `src/core/tools/` (excluding new tools) |
+| Documentation | `mintlify-docs/`, `README.md`, recipes |
+| Tests | `tests/` |
+| Build, CI, packaging | `scripts/`, `.github/workflows/` |
+
+### Out of scope — PRs will be closed unread
+
+These paths define product direction. **Do not open PRs against them.** They are protected by `CODEOWNERS` and maintainer review is mandatory; drive-by changes are closed without discussion.
+
+- `src/core/intelligence/` — repo map, ranking, indexing, backend router
+- `src/core/agents/` — agent loop, dispatch, bus, subagent orchestration
+- `src/core/context/manager.ts` — context assembly
+- `src/core/prompts/` — system prompts, family detection, mode overlays
+- `src/core/memory/recall.ts` — memory recall scoring
+- `src/core/compaction/` — compaction strategies, working state extraction
+- `src/hearth/` server internals — pairing protocol, permission engine
+- New tools, new agents, new commands
+
+If you have an idea touching these paths, **open a Discussion**, not an issue or PR. The maintainer will respond `yes`, `no`, or `let's design it together` before any code is written. This is the only path forward for architecture proposals — it protects your time more than it protects the project.
+
+The Discussions board is the right place for: "what if SoulForge did X", "I'd like to add Y", "have you considered Z architecture". Issues are for bugs and concrete feature requests in the in-scope areas above.
+
+### Why this is strict
+
+Single maintainer. No co-maintainers, no committee. Every architecture PR is hours of design review the maintainer cannot afford to spend on speculative direction. The scope above is the contract: anything in-scope gets a fair review, anything out-of-scope is a closed-without-review fast path so contributors don't waste time waiting.
+
+Same governance model as SQLite, Postgres, FreeBSD, Linux subsystems, aider. Open code, controlled direction.
+
+## Code rules
 
 These are non-negotiable. PRs that break them will be asked to fix before merge.
 
