@@ -47,6 +47,10 @@ export interface MemoryRecallSignals {
   file_affinity: number;
   blast_radius: number;
   pinned: number;
+  /** Cosine similarity in [0,1]; null when no embedding/query. */
+  semantic: number | null;
+  /** Rank position among semantic candidates (1-indexed); null when no embedding match. */
+  semantic_rank: number | null;
 }
 
 export interface MemoryRecallResult {

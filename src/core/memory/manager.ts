@@ -371,4 +371,46 @@ export class MemoryManager {
       } catch {}
     }
   }
+
+  /**
+   * Phase 4 Deep cleanup: cluster groups of similar memories across scopes.
+   * Each group is a connected component in the similar-edge graph; members
+   * may span scopes. UI uses this to surface merge/supersede candidates.
+   */
+  similarClusters(
+    scope: MemoryScope | "both" | "all",
+    minWeight = 0.7,
+  ): Array<{ scope: MemoryScope; members: MemoryRecord[]; avgWeight: number }> {
+    const out: Array<{ scope: MemoryScope; members: MemoryRecord[]; avgWeight: number }> = [];
+    for (const db of this.getReadDbs(scope)) {
+      for (const c of db.similarClusters(minWeight)) {
+        const members: MemoryRecord[] = [];
+        for (const id of c.memberIds) {
+          const r = db.read(id);
+          if (r && !r.hidden) members.push(r);
+        }
+        if (members.length >= 2) {
+          out.push({ scope: db.scope, members, avgWeight: c.avgWeight });
+        }
+      }
+    }
+    out.sort((a, b) => b.avgWeight - a.avgWeight);
+    return out;
+  }
+
+  /** Backfill embeddings for memories written before Phase 4 landed. */
+  backfillEmbeddings(scope: MemoryScope | "both" | "all" = "all", maxPerScope = 200): number {
+    let n = 0;
+    for (const db of this.getReadDbs(scope)) {
+      const missing = db.listMissingEmbeddings(undefined, maxPerScope);
+      for (const m of missing) {
+        try {
+          db.embedAndLink(m.id);
+          n++;
+        } catch {}
+      }
+    }
+    if (n > 0) this._generation++;
+    return n;
+  }
 }

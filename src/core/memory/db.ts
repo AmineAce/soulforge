@@ -1,6 +1,14 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
+import {
+  bufferToVector,
+  cosine,
+  EMBED_MODEL,
+  embed,
+  memoryEmbedSource,
+  vectorToBuffer,
+} from "./embedder.js";
 import type {
   MemoryCategory,
   MemoryFileRef,
@@ -10,7 +18,7 @@ import type {
   MemorySource,
 } from "./types.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 interface RawMemoryRow {
   id: string;
@@ -205,6 +213,37 @@ export class MemoryDB {
         .query<{ version: number }, []>("SELECT MAX(version) as version FROM schema_version")
         .get();
       const current = versionRow?.version ?? 0;
+
+      if (current < 2) {
+        // v2: embeddings + memory_edges (Phase 4)
+        const cols = this.db
+          .query<{ name: string }, []>("PRAGMA table_info(memories)")
+          .all()
+          .map((r) => r.name);
+        if (!cols.includes("embedding")) {
+          this.db.run("ALTER TABLE memories ADD COLUMN embedding BLOB");
+        }
+        if (!cols.includes("embedding_model")) {
+          this.db.run("ALTER TABLE memories ADD COLUMN embedding_model TEXT");
+        }
+        if (!cols.includes("embedding_dim")) {
+          this.db.run("ALTER TABLE memories ADD COLUMN embedding_dim INTEGER");
+        }
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS memory_edges (
+            src_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+            dst_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK(kind IN ('similar','supersedes')),
+            weight REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (src_id, dst_id, kind)
+          );
+          CREATE INDEX IF NOT EXISTS idx_memory_edges_src ON memory_edges(src_id);
+          CREATE INDEX IF NOT EXISTS idx_memory_edges_dst ON memory_edges(dst_id);
+          CREATE INDEX IF NOT EXISTS idx_memory_edges_kind ON memory_edges(kind);
+        `);
+      }
+
       if (current < SCHEMA_VERSION) {
         this.db
           .query("INSERT OR IGNORE INTO schema_version (version) VALUES (?)")
@@ -244,6 +283,9 @@ export class MemoryDB {
           .run(input.summary, input.details, topicsJson, input.category, hash, now, input.id);
         const updated = this.read(input.id);
         if (!updated) throw new Error(`Failed to read memory ${input.id} after upsert`);
+        try {
+          this.embedAndLink(updated.id);
+        } catch {}
         return { record: updated, deduped: false };
       }
     }
@@ -285,6 +327,11 @@ export class MemoryDB {
       }
       const updated = this.read(existing.id);
       if (!updated) throw new Error(`Failed to read memory ${existing.id} after dedup update`);
+      if (topicDiff && input.mergeTopics) {
+        try {
+          this.embedAndLink(updated.id);
+        } catch {}
+      }
       return { record: updated, deduped: true, topicDiff };
     }
 
@@ -326,7 +373,11 @@ export class MemoryDB {
       );
 
     if (!row) throw new Error(`Failed to write memory ${id}`);
-    return { record: toRecord(row), deduped: false };
+    const record = toRecord(row);
+    try {
+      this.embedAndLink(record.id);
+    } catch {}
+    return { record, deduped: false };
   }
 
   getByContentHash(hash: string): MemoryRecord | null {
@@ -770,6 +821,168 @@ export class MemoryDB {
       else out.set(r.memory_id, [r.file_id]);
     }
     return out;
+  }
+
+  setEmbedding(id: string, vec: Float32Array, model: string = EMBED_MODEL): void {
+    this.db
+      .query(
+        "UPDATE memories SET embedding = ?, embedding_model = ?, embedding_dim = ? WHERE id = ?",
+      )
+      .run(vectorToBuffer(vec), model, vec.length, id);
+  }
+
+  getEmbedding(id: string): { vector: Float32Array; model: string } | null {
+    const row = this.db
+      .query<{ embedding: Buffer | null; embedding_model: string | null }, [string]>(
+        "SELECT embedding, embedding_model FROM memories WHERE id = ?",
+      )
+      .get(id);
+    if (!row?.embedding || !row.embedding_model) return null;
+    return { vector: bufferToVector(row.embedding), model: row.embedding_model };
+  }
+
+  /** All non-hidden memories with embeddings, for similarity scans. */
+  listEmbeddings(model?: string): Array<{ id: string; vector: Float32Array }> {
+    const rows = model
+      ? this.db
+          .query<{ id: string; embedding: Buffer | null }, [string]>(
+            "SELECT id, embedding FROM memories WHERE hidden = 0 AND embedding IS NOT NULL AND embedding_model = ?",
+          )
+          .all(model)
+      : this.db
+          .query<{ id: string; embedding: Buffer | null }, []>(
+            "SELECT id, embedding FROM memories WHERE hidden = 0 AND embedding IS NOT NULL",
+          )
+          .all();
+    const out: Array<{ id: string; vector: Float32Array }> = [];
+    for (const r of rows) {
+      if (r.embedding) out.push({ id: r.id, vector: bufferToVector(r.embedding) });
+    }
+    return out;
+  }
+
+  /** Memories missing an embedding for the given model. Used by backfill. */
+  listMissingEmbeddings(model: string = EMBED_MODEL, limit = 200): MemoryRecord[] {
+    const rows = this.db
+      .query<RawMemoryRow, [string, number]>(
+        `SELECT * FROM memories
+         WHERE hidden = 0 AND (embedding IS NULL OR embedding_model IS NULL OR embedding_model != ?)
+         ORDER BY last_used_at DESC
+         LIMIT ?`,
+      )
+      .all(model, limit);
+    return rows.map(toRecord);
+  }
+
+  addEdge(srcId: string, dstId: string, kind: "similar" | "supersedes", weight: number): void {
+    if (srcId === dstId) return;
+    this.db
+      .query(
+        `INSERT INTO memory_edges (src_id, dst_id, kind, weight) VALUES (?, ?, ?, ?)
+         ON CONFLICT(src_id, dst_id, kind) DO UPDATE SET weight = excluded.weight`,
+      )
+      .run(srcId, dstId, kind, weight);
+  }
+
+  listEdges(
+    id: string,
+    kind?: "similar" | "supersedes",
+  ): Array<{ src_id: string; dst_id: string; kind: string; weight: number }> {
+    const sql = kind
+      ? "SELECT src_id, dst_id, kind, weight FROM memory_edges WHERE (src_id = ? OR dst_id = ?) AND kind = ?"
+      : "SELECT src_id, dst_id, kind, weight FROM memory_edges WHERE src_id = ? OR dst_id = ?";
+    const rows = kind
+      ? this.db
+          .query<
+            { src_id: string; dst_id: string; kind: string; weight: number },
+            [string, string, string]
+          >(sql)
+          .all(id, id, kind)
+      : this.db
+          .query<
+            { src_id: string; dst_id: string; kind: string; weight: number },
+            [string, string]
+          >(sql)
+          .all(id, id);
+    return rows;
+  }
+
+  /** Cluster groups: connected components in the similar-edge graph (for Deep cleanup). */
+  similarClusters(minWeight = 0.7): Array<{ memberIds: string[]; avgWeight: number }> {
+    const rows = this.db
+      .query<{ src_id: string; dst_id: string; weight: number }, [number]>(
+        "SELECT src_id, dst_id, weight FROM memory_edges WHERE kind = 'similar' AND weight >= ?",
+      )
+      .all(minWeight);
+    if (rows.length === 0) return [];
+    const parent = new Map<string, string>();
+    const find = (x: string): string => {
+      let p = parent.get(x) ?? x;
+      while (p !== (parent.get(p) ?? p)) p = parent.get(p) ?? p;
+      parent.set(x, p);
+      return p;
+    };
+    const union = (a: string, b: string) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
+    for (const r of rows) {
+      if (!parent.has(r.src_id)) parent.set(r.src_id, r.src_id);
+      if (!parent.has(r.dst_id)) parent.set(r.dst_id, r.dst_id);
+      union(r.src_id, r.dst_id);
+    }
+    const groups = new Map<string, { ids: Set<string>; weights: number[] }>();
+    for (const r of rows) {
+      const root = find(r.src_id);
+      let g = groups.get(root);
+      if (!g) {
+        g = { ids: new Set(), weights: [] };
+        groups.set(root, g);
+      }
+      g.ids.add(r.src_id);
+      g.ids.add(r.dst_id);
+      g.weights.push(r.weight);
+    }
+    const out: Array<{ memberIds: string[]; avgWeight: number }> = [];
+    for (const g of groups.values()) {
+      if (g.ids.size < 2) continue;
+      const avg = g.weights.reduce((a, b) => a + b, 0) / g.weights.length;
+      out.push({ memberIds: [...g.ids], avgWeight: avg });
+    }
+    out.sort((a, b) => b.avgWeight - a.avgWeight);
+    return out;
+  }
+
+  /**
+   * Compute + store embedding for `id`, then infer "similar" edges with all
+   * other non-hidden memories above `threshold` cosine. Edges are bidirectional
+   * (we insert both directions). Returns the count of edges added/updated.
+   *
+   * Default threshold is 0.5 so moderately related pairs persist; consumers
+   * (cluster queries, recall) filter to a higher cut at read time. This keeps
+   * edge inference one-shot — no rebuild required when the consumer's bar moves.
+   */
+  embedAndLink(id: string, threshold = 0.5, maxEdges = 8): number {
+    const record = this.read(id);
+    if (!record) return 0;
+    const source = memoryEmbedSource(record.summary, record.details, record.topics);
+    if (!source) return 0;
+    const vec = embed(source);
+    this.setEmbedding(id, vec, EMBED_MODEL);
+
+    const others = this.listEmbeddings(EMBED_MODEL).filter((o) => o.id !== id);
+    const scored = others
+      .map((o) => ({ id: o.id, weight: cosine(vec, o.vector) }))
+      .filter((s) => s.weight >= threshold)
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, maxEdges);
+
+    for (const s of scored) {
+      this.addEdge(id, s.id, "similar", s.weight);
+      this.addEdge(s.id, id, "similar", s.weight);
+    }
+    return scored.length;
   }
 }
 

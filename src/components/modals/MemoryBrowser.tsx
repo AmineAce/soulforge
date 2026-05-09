@@ -54,11 +54,13 @@ interface MemoryRow {
 interface CleanupRow {
   id: string;
   scope: MemoryScope;
-  kind: "dupe" | "dead" | "stale";
+  kind: "dupe" | "dead" | "stale" | "sim";
   kindLabel: string;
   summary: string;
   detail: string;
   record: MemoryRecord;
+  /** For "sim" rows: the cluster's preferred keeper id. */
+  clusterKeeperId?: string;
 }
 
 const TABS: Tab[] = ["All", "Hidden", "Cleanup"];
@@ -195,6 +197,35 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
         detail: `${s.ageDays.toFixed(0)}d unused, ×${String(s.record.use_count)}`,
         record: s.record,
       });
+    }
+
+    // Deep: similarity clusters from memory_edges. Keep the most-pinned /
+    // most-used / newest as cluster keeper; surface the rest as candidates
+    // for soft-delete (or supersede via the agent later).
+    const clusters = memMgr.similarClusters("all", 0.7);
+    for (const c of clusters) {
+      if (c.members.length < 2) continue;
+      const sortedMembers = [...c.members].sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        if (a.use_count !== b.use_count) return b.use_count - a.use_count;
+        return Date.parse(b.last_used_at) - Date.parse(a.last_used_at);
+      });
+      const keeper = sortedMembers[0];
+      if (!keeper) continue;
+      for (const m of sortedMembers.slice(1)) {
+        // Don't double-list rows already flagged by Quick/Stale.
+        if (rows.some((r) => r.id === m.id && r.scope === c.scope)) continue;
+        rows.push({
+          id: m.id,
+          scope: c.scope,
+          kind: "sim",
+          kindLabel: "SIM",
+          summary: m.summary.replace(/[\n\r]+/g, " "),
+          detail: `~${keeper.id.slice(0, 8)} (${(c.avgWeight * 100).toFixed(0)}%)`,
+          record: m,
+          clusterKeeperId: keeper.id,
+        });
+      }
     }
     setCleanupRows(rows);
     setCleanupSelected(new Map());

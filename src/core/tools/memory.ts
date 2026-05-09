@@ -33,6 +33,8 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
     topByUsage: (l?: number) => db.topByUsage(l),
     readMany: (ids: string[]) => db.readMany(ids),
     fileIdsByMemoryIds: (ids: string[]) => db.fileIdsByMemoryIds(ids),
+    listEmbeddings: (model?: string) => db.listEmbeddings(model),
+    getEmbedding: (id: string) => db.getEmbedding(id),
   });
   const recall = new MemoryRecall(
     [

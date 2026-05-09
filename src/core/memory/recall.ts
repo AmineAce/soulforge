@@ -1,4 +1,5 @@
 import type { MemoryDB } from "./db.js";
+import { cosine, EMBED_MODEL, embed, memoryEmbedSource } from "./embedder.js";
 import type { MemoryRecallResult, MemoryRecallSignals, MemoryRecord } from "./types.js";
 
 export interface MemoryRecallOptions {
@@ -22,6 +23,8 @@ interface DbLike {
   topByUsage: MemoryDB["topByUsage"];
   readMany: MemoryDB["readMany"];
   fileIdsByMemoryIds?: MemoryDB["fileIdsByMemoryIds"];
+  listEmbeddings?: MemoryDB["listEmbeddings"];
+  getEmbedding?: MemoryDB["getEmbedding"];
 }
 
 export interface DbScopeAdapter {
@@ -114,6 +117,8 @@ export class MemoryRecall {
             trigramRank: sc.trigramRank.get(record.id) ?? null,
             fileAffinityHit: sc.fileAffinitySet.has(record.id),
             blastRadius: radius,
+            semantic: sc.semanticScore.get(record.id) ?? null,
+            semanticRank: sc.semanticRank.get(record.id) ?? null,
           });
           return {
             record,
@@ -175,6 +180,8 @@ export class MemoryRecall {
     trigramRank: Map<string, number>;
     fileAffinitySet: Set<string>;
     fileIdsByMemory: Map<string, number[]>;
+    semanticScore: Map<string, number>;
+    semanticRank: Map<string, number>;
   }> {
     const db = s.db;
     const unicodeHits = query ? db.searchUnicode(query, FTS_CANDIDATE_LIMIT) : [];
@@ -185,14 +192,23 @@ export class MemoryRecall {
 
     const fileAffinityIds = collectFileAffinity(db, editedFiles, editedFileIds);
 
+    const semanticHits = collectSemanticHits(db, query);
+    const semanticScore = new Map<string, number>();
+    for (const h of semanticHits) semanticScore.set(h.id, h.weight);
+    const semanticRank = rankMap(semanticHits.map((h) => h.id));
+
     const hasDirectionalSignal =
-      unicodeHits.length > 0 || trigramHits.length > 0 || fileAffinityIds.length > 0;
+      unicodeHits.length > 0 ||
+      trigramHits.length > 0 ||
+      fileAffinityIds.length > 0 ||
+      semanticHits.length > 0;
     const usageIds = hasDirectionalSignal ? [] : db.topByUsage(USAGE_CANDIDATE_LIMIT);
 
     const candidateIds = new Set<string>();
     for (const h of unicodeHits) candidateIds.add(h.id);
     for (const h of trigramHits) candidateIds.add(h.id);
     for (const id of fileAffinityIds) candidateIds.add(id);
+    for (const h of semanticHits) candidateIds.add(h.id);
     for (const id of usageIds) candidateIds.add(id);
 
     if (candidateIds.size === 0) {
@@ -203,6 +219,8 @@ export class MemoryRecall {
         trigramRank: new Map(),
         fileAffinitySet: new Set(),
         fileIdsByMemory: new Map(),
+        semanticScore: new Map(),
+        semanticRank: new Map(),
       };
     }
 
@@ -219,6 +237,8 @@ export class MemoryRecall {
       trigramRank: rankMap(trigramHits.map((h) => h.id)),
       fileAffinitySet: new Set(fileAffinityIds),
       fileIdsByMemory,
+      semanticScore,
+      semanticRank,
     };
   }
 }
@@ -238,6 +258,8 @@ interface SignalInputs {
   trigramRank: number | null;
   fileAffinityHit: boolean;
   blastRadius: number;
+  semantic: number | null;
+  semanticRank: number | null;
 }
 
 function computeSignals(input: SignalInputs): MemoryRecallSignals {
@@ -255,23 +277,22 @@ function computeSignals(input: SignalInputs): MemoryRecallSignals {
     file_affinity: input.fileAffinityHit ? 1 : 0,
     blast_radius: 0.1 * Math.log(input.blastRadius + 1),
     pinned: input.record.pinned ? 0.2 : 0,
+    semantic: input.semantic,
+    semantic_rank: input.semanticRank,
   };
 }
 
 function combineScore(signals: MemoryRecallSignals): number {
-  // RRF over directional signals (FTS hits + file affinity). These are
-  // the only sources of "this matches the user's intent." Without one,
-  // the candidate scores zero — pinned/use_count never lift unrelated
-  // memories over the threshold.
+  // RRF over directional signals (FTS hits + file affinity + semantic).
+  // Without at least one directional match the candidate scores zero —
+  // pinned/use_count alone never lift unrelated memories over the threshold.
   let directional = 0;
   if (signals.fts_unicode !== null) directional += 1 / (RRF_K + signals.fts_unicode);
   if (signals.fts_trigram !== null) directional += 1 / (RRF_K + signals.fts_trigram);
   if (signals.file_affinity > 0) directional += 1 / (RRF_K + 1);
+  if (signals.semantic_rank !== null) directional += 1 / (RRF_K + signals.semantic_rank);
   if (directional === 0) return 0;
 
-  // Bonuses scale the directional match instead of adding a flat amount,
-  // so a strong query hit with high use_count still beats a weak hit on
-  // a pinned row — but pinned alone is never enough.
   const bonus = signals.use_count + signals.recency + signals.blast_radius + signals.pinned;
   return directional + bonus;
 }
@@ -293,4 +314,22 @@ function collectFileAffinity(db: DbLike, editedFiles: string[], editedFileIds: n
     editedFileIds.length > 0 ? db.findByFileIds(editedFileIds, FILE_CANDIDATE_LIMIT) : [];
   const byPath = editedFiles.length > 0 ? db.findByPaths(editedFiles, FILE_CANDIDATE_LIMIT) : [];
   return Array.from(new Set([...byId, ...byPath]));
+}
+function collectSemanticHits(
+  db: DbLike,
+  query: string,
+  limit = 20,
+  threshold = 0.45,
+): Array<{ id: string; weight: number }> {
+  if (!query || !db.listEmbeddings) return [];
+  const qVec = embed(memoryEmbedSource(query, "", []));
+  const all = db.listEmbeddings(EMBED_MODEL);
+  if (all.length === 0) return [];
+  const scored: Array<{ id: string; weight: number }> = [];
+  for (const e of all) {
+    const w = cosine(qVec, e.vector);
+    if (w >= threshold) scored.push({ id: e.id, weight: w });
+  }
+  scored.sort((a, b) => b.weight - a.weight);
+  return scored.slice(0, limit);
 }
