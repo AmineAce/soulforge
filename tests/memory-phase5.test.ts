@@ -23,7 +23,7 @@ describe("MemoryDB — Phase 5 contradiction hints on write", () => {
       expect(second.deduped).toBe(false);
       expect(second.similarHints).toBeDefined();
       expect(second.similarHints!.length).toBeGreaterThanOrEqual(1);
-      expect(second.similarHints![0]!.weight).toBeGreaterThanOrEqual(0.85);
+      expect(second.similarHints![0]!.weight).toBeGreaterThanOrEqual(0.6);
     } finally {
       db.close();
     }

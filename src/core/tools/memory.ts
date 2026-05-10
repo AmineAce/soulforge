@@ -58,7 +58,7 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
       "RECALL is automatic — relevant memories are injected before each user turn based on prompt + edited files. Use action:'search' only when auto-recall missed something.",
       "",
       "Actions:",
-      "  write   — summary (≤200) + details (≤2000) + category + topics[≤8] + file_paths[≤16]. Auto-dedups by content hash; on near-duplicate (≥85% similar) returns similar_hints — review for contradiction.",
+      "  write   — summary (≤200) + details (≤2000) + category + topics[≤8] + file_paths[≤16]. Auto-dedups by content hash; near-duplicates (semantic ≥0.65 OR ≥60% trigram overlap on summary) return similar_hints — review for contradiction.",
       "  search  — semantic + FTS. query + optional limit/scope.",
       "  list    — filter by category/topic/pinned/include_hidden.",
       "  get     — full record by id (8-char prefix accepted).",

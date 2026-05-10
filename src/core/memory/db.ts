@@ -294,6 +294,10 @@ export class MemoryDB {
           const scored = this.embedAndLink(updated.id);
           const strong = scored.filter((s) => s.weight >= SIMILAR_HINT_THRESHOLD).slice(0, 3);
           if (strong.length > 0) upsertHints = strong;
+          else {
+            const trigramDupes = this.findTrigramDuplicates(updated, 3);
+            if (trigramDupes.length > 0) upsertHints = trigramDupes;
+          }
         } catch {}
         const upsertResult: MemoryWriteResult = { record: updated, deduped: false };
         if (upsertHints) upsertResult.similarHints = upsertHints;
@@ -390,6 +394,10 @@ export class MemoryDB {
       const scored = this.embedAndLink(record.id);
       const strong = scored.filter((s) => s.weight >= SIMILAR_HINT_THRESHOLD).slice(0, 3);
       if (strong.length > 0) similarHints = strong;
+      else {
+        const trigramDupes = this.findTrigramDuplicates(record, 3);
+        if (trigramDupes.length > 0) similarHints = trigramDupes;
+      }
     } catch {}
     const result: MemoryWriteResult = { record, deduped: false };
     if (similarHints) result.similarHints = similarHints;
@@ -1059,6 +1067,34 @@ export class MemoryDB {
     if (rows.length === 1) return rows[0]?.id ?? null;
     return { ambiguous: rows.map((r) => r.id) };
   }
+
+  private findTrigramDuplicates(
+    record: MemoryRecord,
+    limit: number,
+  ): Array<{ id: string; weight: number; summary: string }> {
+    const summary = record.summary.trim();
+    if (summary.length < 6) return [];
+    let hits = this.searchTrigram(summary, limit + 1);
+    if (hits.length === 0) hits = this.searchTrigramWithBigram(summary, limit + 1);
+    if (hits.length === 0) return [];
+    const otherIds = hits.map((h) => h.id).filter((id) => id !== record.id);
+    if (otherIds.length === 0) return [];
+    const records = this.readMany(otherIds);
+    const out: Array<{ id: string; weight: number; summary: string }> = [];
+    const queryTris = countTrigrams(summary);
+    if (queryTris === 0) return [];
+    for (const r of records) {
+      if (r.hidden || r.superseded_by) continue;
+      const overlap = trigramOverlap(summary, r.summary);
+      const weight = overlap / queryTris;
+      if (weight >= 0.6) {
+        out.push({ id: r.id, weight, summary: r.summary });
+        if (out.length >= limit) break;
+      }
+    }
+    out.sort((a, b) => b.weight - a.weight);
+    return out;
+  }
 }
 
 function normalize(s: string): string {
@@ -1215,4 +1251,24 @@ function isDbClosedError(err: unknown): boolean {
   const msg = err.message.toLowerCase();
   return msg.includes("closed") || msg.includes("not open") || msg.includes("misuse");
 }
-const SIMILAR_HINT_THRESHOLD = 0.85;
+const SIMILAR_HINT_THRESHOLD = 0.65;
+function trigramSet(text: string): Set<string> {
+  const t = text.toLowerCase().replace(/\s+/g, " ").trim();
+  const out = new Set<string>();
+  if (t.length < 3) return out;
+  for (let i = 0; i <= t.length - 3; i++) out.add(t.slice(i, i + 3));
+  return out;
+}
+
+function countTrigrams(text: string): number {
+  return trigramSet(text).size;
+}
+
+function trigramOverlap(a: string, b: string): number {
+  const sa = trigramSet(a);
+  const sb = trigramSet(b);
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let n = 0;
+  for (const t of sa) if (sb.has(t)) n++;
+  return n;
+}

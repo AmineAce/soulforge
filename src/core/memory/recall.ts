@@ -319,7 +319,7 @@ function collectSemanticHits(
   db: DbLike,
   query: string,
   limit = 20,
-  threshold = 0.45,
+  threshold = 0.25,
 ): Array<{ id: string; weight: number }> {
   if (!query || !db.listEmbeddings) return [];
   const qVec = embed(memoryEmbedSource(query, "", []));
