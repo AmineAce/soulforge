@@ -300,7 +300,16 @@ export const LockInLiveView = memo(function LockInLiveView({
     const prev = dispatchRef.current;
     if (
       prev.length === next.length &&
-      prev.every((p, i) => p === next[i] || p.id === next[i]?.id)
+      prev.every(
+        (p, i) =>
+          next[i] !== undefined &&
+          p.id === next[i]?.id &&
+          p.state === next[i]?.state &&
+          p.args === next[i]?.args &&
+          p.result === next[i]?.result &&
+          p.error === next[i]?.error &&
+          p.progressText === next[i]?.progressText,
+      )
     ) {
       return prev;
     }
