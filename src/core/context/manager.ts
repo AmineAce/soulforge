@@ -234,16 +234,25 @@ export class ContextManager {
       return null;
     }
 
+    // Stub-mode inject: summary + id + signals only. Details live in the DB
+    // and are pulled on demand via memory(get, id) when the agent decides
+    // the memory is actually relevant. Cuts per-turn cost ~80% vs inline.
     const lines: string[] = ["<recalled_memories>"];
     const surfacedIds: Array<{ scope: "global" | "project"; id: string }> = [];
+    let anyHasDetails = false;
     for (const { record, scope, signals } of fresh) {
       surfacedIds.push({ scope, id: record.id });
       this.surfacedMemoryIds.add(record.id);
       const cat = record.category ?? "—";
       const why = describeRecallSignals(signals);
       const whySuffix = why ? `  · via ${why}` : "";
-      lines.push(`[${cat}] ${record.id.slice(0, 8)} — ${record.summary}${whySuffix}`);
-      if (record.details) lines.push(`  ${record.details}`);
+      const hasBody = record.details.length > 0;
+      if (hasBody) anyHasDetails = true;
+      const bodyHint = hasBody ? "  ↳ has details" : "";
+      lines.push(`[${cat}] ${record.id.slice(0, 8)} — ${record.summary}${whySuffix}${bodyHint}`);
+    }
+    if (anyHasDetails) {
+      lines.push("(call memory(action:'get', id:<8-char prefix>) to read full details)");
     }
     lines.push("</recalled_memories>");
 
