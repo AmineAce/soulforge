@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.15.3] — 2026-05-11
+
+### Features
+
+- **timeouts**: configurable watchdog timeouts with /timeouts picker (#61)
 ## [2.15.2] — 2026-05-11
 
 ### Bug Fixes
