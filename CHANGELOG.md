@@ -2,6 +2,52 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.15.0] — 2026-05-11
+
+### Bug Fixes
+
+- **clipboard**: surface backend-missing + update prerequisite for Wayland
+- **clipboard**: wayland support + ctrl+shift+c no-exit + empty-export guard
+- **memory**: declare new_id in supersede tool schema
+- **memory**: rebalance recall scoring
+- **memory**: better near-duplicate detection on write
+- **memory**: rewrite breakage tests to new API + harden write/FTS
+- **memory**: few memory fixes
+### Documentation
+
+- **memory**: rewrite prompt with value framing + capability-first ordering
+- **memory**: rewrite prompt guidance — triggers, supersede, conflict protocol
+- **memory**: stronger tool guidance + per-action display
+- **prompts**: instruct proactive memory.search when convention matters
+### Features
+
+- **memory**: stub-mode auto-recall — details on demand via memory(get)
+- **memory**: provider-aware embedder resolution + live refresh on model switch
+- **memory**: surface recall signals in injected memories block
+- **memory**: co-change recall boost via Soul Map git history
+- **memory**: wire provider embeddings via config.memory.embeddingModel
+- **memory**: provider embeddings + cleanup hint in statusbar
+- **memory**: supersede action + 3x summary weight + boot backfill
+- **memory**: hashbag-v2 embedder with paraphrase-grade recall
+- **memory**: unified popup with Settings tab + UI toggle for auto-extraction
+- **memory**: id prefix resolution + phase 6 auto-trigger hook
+- **memory**: phase 6 — post-turn extraction primitives (opt-in)
+- **memory**: phase 5 — contradiction hints on fresh writes
+- **memory**: phase 4 — embeddings, semantic recall, memory_edges, Deep cleanup
+- **memory**: premium popup browser — sidebar tabs + table + cleanup
+- **memory**: phase 3 — cleanup primitives, interactive /memory, hint banner
+- **memory**: phase 2 — multi-signal recall, passive inject, compaction-safe
+- **memory**: phase 1 — schema rewrite, dedup, dual FTS, file refs
+### Miscellaneous
+
+- governance, build hardening, mintlify sweep
+### Other
+
+- **memory**: drop phase 6 auto-extraction
+### Testing
+
+- **memory**: adversarial sweep + 3 real bug fixes
+- **step-utils**: await prepareStep — now async
 ## [2.14.11] — 2026-05-10
 
 ### Bug Fixes
