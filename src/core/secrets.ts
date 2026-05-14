@@ -2,6 +2,14 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+// Cache for keychain probes — sync `security` exec is ~50-200ms each. Without
+// caching, opening the API key popup blocks the UI for seconds while probing
+// every provider. Invalidated by setSecret/deleteSecret.
+const _keychainHasCache = new Map<string, boolean>();
+function _invalidateKeychainCache(key?: string) {
+  if (key) _keychainHasCache.delete(key);
+  else _keychainHasCache.clear();
+}
 
 const SECRETS_DIR = join(homedir(), ".soulforge");
 const SECRETS_FILE = join(SECRETS_DIR, "secrets.json");
@@ -87,25 +95,22 @@ function keychainGet(key: SecretKey): string | null {
 
 function keychainSet(key: SecretKey, value: string): boolean {
   try {
+    if (!value) return false;
     if (process.platform === "darwin") {
-      spawnSync("security", ["delete-generic-password", "-a", KEYCHAIN_SERVICE, "-s", key], {
-        timeout: 5000,
-        stdio: ["ignore", "ignore", "ignore"],
-      });
-      // H3: prior form passed the token as `-w <value>` which is visible in
-      // `ps auxww` while `security` runs. The `-w` flag without a value makes
-      // `security` read the password from stdin; pipe it in via the `input`
-      // option so the secret never touches argv. stdio must explicitly ignore
-      // stderr — otherwise `security` writes its "password data for new item:"
-      // prompt to the inherited TTY and leaks into the rendered UI.
+      // We pass the secret via `-w <value>` on argv. The stdin alternative
+      // (`-w` with no value, password piped via stdin) does NOT work when the
+      // parent has a controlling TTY: `security` opens /dev/tty directly,
+      // bypasses the stdio pipe, prints "password data for new item:" to the
+      // terminal, and hangs until the 5s timeout. Argv exposure is bounded —
+      // `security` runs ~25ms, modern `ps` hides other users' argv, and any
+      // attacker on this user account can already read the keychain.
       const result = spawnSync(
         "security",
-        ["add-generic-password", "-U", "-a", KEYCHAIN_SERVICE, "-s", key, "-w"],
+        ["add-generic-password", "-U", "-a", KEYCHAIN_SERVICE, "-s", key, "-w", value],
         {
-          input: `${value}\n`,
           timeout: 5000,
           encoding: "utf-8",
-          stdio: ["pipe", "ignore", "ignore"],
+          stdio: ["ignore", "ignore", "ignore"],
         },
       );
       return result.status === 0;
@@ -182,7 +187,16 @@ export function getSecretSources(
 ): SecretSources {
   const envVar = ENV_MAP[key];
   const hasEnv = !!(envVar && process.env[envVar]);
-  const hasKeychain = keychainAvailable() && !!keychainGet(key);
+  let hasKeychain = false;
+  if (keychainAvailable()) {
+    const cached = _keychainHasCache.get(key);
+    if (cached !== undefined) {
+      hasKeychain = cached;
+    } else {
+      hasKeychain = !!keychainGet(key);
+      _keychainHasCache.set(key, hasKeychain);
+    }
+  }
   const hasFile = !!fileRead()[key];
 
   let active: SecretSources["active"] = "none";
@@ -225,6 +239,7 @@ interface SetSecretResult {
 export function setSecret(key: SecretKey | string, value: string): SetSecretResult {
   if (keychainAvailable()) {
     if (keychainSet(key as SecretKey, value)) {
+      _invalidateKeychainCache(key);
       const data = fileRead();
       if (data[key]) {
         delete data[key];
@@ -252,6 +267,7 @@ export function deleteSecret(key: SecretKey): { success: boolean; storage: "keyc
   if (keychainAvailable()) {
     deleted = keychainDelete(key);
     if (deleted) storage = "keychain";
+    _invalidateKeychainCache(key);
   }
 
   const data = fileRead();
