@@ -63,6 +63,7 @@ export function PlanReviewPrompt({
       if (evt.name === "escape") {
         setTyping(false);
         evt.stopPropagation();
+        evt.preventDefault();
       }
       return;
     }
@@ -70,17 +71,20 @@ export function PlanReviewPrompt({
     if (evt.name === "escape") {
       onCancel();
       evt.stopPropagation();
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "up" || evt.name === "left") {
       setSelectedIdx((prev) => (prev > 0 ? prev - 1 : options.length - 1));
       evt.stopPropagation();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down" || evt.name === "right" || evt.name === "tab") {
       setSelectedIdx((prev) => (prev + 1) % options.length);
       evt.stopPropagation();
+      evt.preventDefault();
       return;
     }
 
@@ -88,6 +92,7 @@ export function PlanReviewPrompt({
       const opt = options[selectedIdx];
       if (!opt) return;
       evt.stopPropagation();
+      evt.preventDefault();
       switch (opt.id) {
         case "implement":
           onAccept();

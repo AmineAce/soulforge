@@ -230,6 +230,7 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
       } else {
         onClose();
       }
+      evt.preventDefault();
       return;
     }
 
@@ -240,28 +241,34 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
         onClose();
         onExecute(r.def.cmd);
       }
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "up" || (evt.ctrl && evt.name === "k")) {
       setCursor((c) => nextItemIdx(c, -1));
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down" || (evt.ctrl && evt.name === "j")) {
       setCursor((c) => nextItemIdx(c, 1));
+      evt.preventDefault();
       return;
     }
     if (evt.name === "tab" && !query) {
       setCursor((c) => nextCategoryIdx(c));
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "backspace" || evt.name === "delete") {
       setQuery((q) => q.slice(0, -1));
+      evt.preventDefault();
       return;
     }
     if (evt.ctrl && evt.name === "u") {
       setQuery("");
+      evt.preventDefault();
       return;
     }
 
@@ -277,6 +284,7 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
     ) {
       setQuery((q) => q + ch);
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

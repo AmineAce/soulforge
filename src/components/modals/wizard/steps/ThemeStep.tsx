@@ -94,6 +94,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
       setCursor(next);
       const th = themes[next];
       if (th) applyAll(th.id, isTransparent, msgOpacity, diffOpacity, borderStr);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down") {
@@ -101,6 +102,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
       setCursor(next);
       const th = themes[next];
       if (th) applyAll(th.id, isTransparent, msgOpacity, diffOpacity, borderStr);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return") {
@@ -109,12 +111,14 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
         applyAll(th.id, isTransparent, msgOpacity, diffOpacity, borderStr);
         saveAll(th.id, isTransparent, msgOpacity, diffOpacity, borderStr);
       }
+      evt.preventDefault();
       return;
     }
     if (evt.name === "tab") {
       const next = !isTransparent;
       applyAll(name, next, msgOpacity, diffOpacity, borderStr);
       saveAll(name, next, msgOpacity, diffOpacity, borderStr);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "m") {
@@ -123,6 +127,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
       setMsgOpacity(nextOp);
       applyAll(name, isTransparent, nextOp, diffOpacity, borderStr);
       saveAll(name, isTransparent, nextOp, diffOpacity, borderStr);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "d") {
@@ -131,6 +136,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
       setDiffOpacity(nextOp);
       applyAll(name, isTransparent, msgOpacity, nextOp, borderStr);
       saveAll(name, isTransparent, msgOpacity, nextOp, borderStr);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "b") {
@@ -139,7 +145,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
       setBorderStr(nextBdr);
       applyAll(name, isTransparent, msgOpacity, diffOpacity, nextBdr);
       saveAll(name, isTransparent, msgOpacity, diffOpacity, nextBdr);
-      return;
+      evt.preventDefault();
     }
   });
 

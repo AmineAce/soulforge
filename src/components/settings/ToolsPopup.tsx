@@ -57,6 +57,7 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
     if (!visible) return;
     if (evt.name === "escape" || evt.name === "q") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return" || evt.name === "space") {
@@ -64,9 +65,11 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
       if (r?.kind === "item" && r.item) {
         onToggleTool((r.item as ToolItem).toolName);
       }
+      evt.preventDefault();
       return;
     }
     handleCursorNavKey(evt, setCursor, rows.length);
+    evt.preventDefault();
   });
 
   if (!visible) return null;

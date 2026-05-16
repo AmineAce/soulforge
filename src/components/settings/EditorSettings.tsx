@@ -131,6 +131,7 @@ export function EditorSettings({ visible, settings, initialScope, onUpdate, onCl
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return" || evt.name === "space") {
@@ -139,14 +140,17 @@ export function EditorSettings({ visible, settings, initialScope, onUpdate, onCl
         const k = (r.item as Row).fkey;
         onUpdate({ ...current, [k]: !current[k] }, scope);
       }
+      evt.preventDefault();
       return;
     }
     if (evt.name === "a") {
       onUpdate({ ...ALL_ON, agentAccess: current.agentAccess }, scope);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "n") {
       onUpdate({ ...ALL_OFF, agentAccess: current.agentAccess }, scope);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "e") {
@@ -154,6 +158,7 @@ export function EditorSettings({ visible, settings, initialScope, onUpdate, onCl
       const idx = AGENT_ACCESS_MODES.indexOf(currentAccess);
       const next = AGENT_ACCESS_MODES[(idx + 1) % AGENT_ACCESS_MODES.length] ?? "on";
       onUpdate({ ...current, agentAccess: next }, scope);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
@@ -166,8 +171,11 @@ export function EditorSettings({ visible, settings, initialScope, onUpdate, onCl
         if (next && next !== prev) onUpdate({ ...current }, next, prev);
         return next ?? prev;
       });
+      evt.preventDefault();
       return;
     }
+    handleCursorNavKey(evt, setCursor, rows.length);
+    evt.preventDefault();
     handleCursorNavKey(evt, setCursor, rows.length);
   });
 

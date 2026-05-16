@@ -187,6 +187,7 @@ export function GitMenu({
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return") {
@@ -195,14 +196,17 @@ export function GitMenu({
         setBusy(true);
         void run((r.item as MenuItem).action).finally(() => setBusy(false));
       }
+      evt.preventDefault();
       return;
     }
     if (evt.name === "up" || evt.name === "k") {
       setCursor((c) => (c > 0 ? c - 1 : MENU_ITEMS.length - 1));
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down" || evt.name === "j") {
       setCursor((c) => (c < MENU_ITEMS.length - 1 ? c + 1 : 0));
+      evt.preventDefault();
       return;
     }
     // Mnemonic direct-invoke
@@ -212,7 +216,10 @@ export function GitMenu({
       setBusy(true);
       const item = MENU_ITEMS[hit];
       if (item) void run(item.action).finally(() => setBusy(false));
+      evt.preventDefault();
+      return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

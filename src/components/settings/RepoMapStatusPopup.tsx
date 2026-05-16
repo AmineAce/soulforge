@@ -182,16 +182,19 @@ export function RepoMapStatusPopup({
     if (!visible) return;
     if (evt.name === "escape" || evt.name === "q") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (!hasConfig) {
       if (evt.name === "backspace") onClose();
+      evt.preventDefault();
       return;
     }
 
     // Tab toggles scope
     if (evt.name === "tab") {
       setSelectedScope((s) => (s === "project" ? "global" : "project"));
+      evt.preventDefault();
       return;
     }
 
@@ -204,9 +207,12 @@ export function RepoMapStatusPopup({
         const next = (idx + dir + rows.length) % rows.length;
         return rows[next] as FocusRow;
       });
+      evt.preventDefault();
       return;
     }
 
+    const arrowKey = evt.name === "left" || evt.name === "right";
+    if (arrowKey) evt.preventDefault();
     if (evt.name === "left" || evt.name === "right") {
       const dir = evt.name === "right" ? 1 : -1;
       if (focusRow === FocusRow.Mode) {
@@ -242,28 +248,36 @@ export function RepoMapStatusPopup({
     const numKey = Number.parseInt(evt.sequence ?? "", 10);
     if (numKey >= 1 && numKey <= SEMANTIC_MODES.length) {
       setSelectedMode(SEMANTIC_MODES[numKey - 1] as SemanticMode);
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "return" && isModified) {
       onApply(selectedMode, selectedLimit, selectedAutoRegen, selectedScope, selectedTokenBudget);
+      evt.preventDefault();
       return;
     }
 
     // Action shortcuts
-    if (evt.ctrl) return; // Ignore Ctrl+letter combos (Ctrl+C to quit, etc.)
+    if (evt.ctrl) {
+      evt.preventDefault();
+      return;
+    }
     // Reset confirm state on any key that isn't 'c'
     if (evt.sequence !== "c" && confirmClear) setConfirmClear(false);
     if (evt.sequence === "r" && onRefresh && enabled) {
       onRefresh();
+      evt.preventDefault();
       return;
     }
     if (evt.sequence === "x" && onClear && enabled) {
       onClear(selectedScope);
+      evt.preventDefault();
       return;
     }
     if (evt.sequence === "g" && onRegenerate && enabled) {
       onRegenerate();
+      evt.preventDefault();
       return;
     }
     if (evt.sequence === "c" && onClearSummaries && enabled) {
@@ -273,20 +287,25 @@ export function RepoMapStatusPopup({
       } else {
         setConfirmClear(true);
       }
+      evt.preventDefault();
       return;
     }
     if (evt.sequence === "a" && hasConfig && enabled) {
       setSelectedAutoRegen((v) => !v);
+      evt.preventDefault();
       return;
     }
     if (evt.sequence === "l" && onLspEnrich && enabled) {
       onLspEnrich();
+      evt.preventDefault();
       return;
     }
     if (evt.sequence === "e" && onToggle) {
       onToggle(!enabled, selectedScope);
+      evt.preventDefault();
       return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

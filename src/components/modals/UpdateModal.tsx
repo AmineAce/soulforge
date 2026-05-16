@@ -240,36 +240,42 @@ export function UpdateModal({ visible, onClose }: Props) {
 
   useKeyboard((evt) => {
     if (!visible) return;
-    if (phase === "upgrading") return;
+    if (phase === "upgrading") {
+      evt.preventDefault();
+      return;
+    }
 
     if (phase === "success") {
       if (evt.name === "escape" || evt.name === "return") {
         setPhase("info");
         onClose();
-        return;
       }
+      evt.preventDefault();
       return;
     }
 
     if (phase === "failed") {
       if (evt.name === "escape" || evt.name === "return") {
         setPhase("info");
-        return;
       }
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "escape" || evt.name === "q") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "u" && updateAvailable && installMethod !== "binary") {
       doUpgrade();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "d") {
       if (latest) dismissVersion(latest);
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "c") {
@@ -279,6 +285,8 @@ export function UpdateModal({ visible, onClose }: Props) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       } catch {}
+      evt.preventDefault();
+      return;
     }
     if (evt.name === "g") {
       const tag = updateAvailable ? latest : current;
@@ -289,7 +297,10 @@ export function UpdateModal({ visible, onClose }: Props) {
         const cmd = process.platform === "darwin" ? "open" : "xdg-open";
         Bun.spawn([cmd, url], { stdio: ["ignore", "ignore", "ignore"] });
       } catch {}
+      evt.preventDefault();
+      return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

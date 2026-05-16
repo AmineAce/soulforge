@@ -92,24 +92,30 @@ export function ModelEventsPopup({ visible, onClose }: Props) {
     if (!visible) return;
     if (evt.name === "escape" || evt.name === "q") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "tab" || evt.name === "right" || evt.name === "l") {
       setTab((cur) => TABS[(TABS.indexOf(cur) + 1) % TABS.length] ?? "Models");
+      evt.preventDefault();
       return;
     }
     if (evt.name === "left" || evt.name === "h") {
       setTab((cur) => TABS[(TABS.indexOf(cur) - 1 + TABS.length) % TABS.length] ?? "Models");
+      evt.preventDefault();
       return;
     }
     if (evt.name === "e") {
       setEnabled(!enabled);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "c") {
       clear();
+      evt.preventDefault();
       return;
     }
+    evt.preventDefault();
   });
 
   const aggregates = useMemo(() => aggregateModelEvents(events), [events]);

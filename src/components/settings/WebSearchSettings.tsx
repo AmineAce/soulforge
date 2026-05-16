@@ -208,25 +208,30 @@ export function WebSearchSettings({ visible, onClose }: Props) {
         setMode("menu");
         setInputValue("");
         setInputTarget(null);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "return") {
         onConfirmInput();
+        evt.preventDefault();
         return;
       }
       if (evt.name === "backspace") {
         setInputValue((v) => v.slice(0, -1));
+        evt.preventDefault();
         return;
       }
       const ch = evt.sequence;
       if (typeof ch === "string" && ch.length === 1 && ch >= " " && !evt.ctrl && !evt.meta) {
         setInputValue((v) => v + ch);
       }
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return" || evt.name === "space") {
@@ -236,9 +241,11 @@ export function WebSearchSettings({ visible, onClose }: Props) {
         if (row.kind === "set") onSetKey(row.targetKey);
         else onRemoveKey(row.targetKey);
       }
+      evt.preventDefault();
       return;
     }
     handleCursorNavKey(evt, setCursor, rows.length);
+    evt.preventDefault();
   });
 
   if (!visible) return null;

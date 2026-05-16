@@ -319,14 +319,17 @@ export function SetupStep({
           } else {
             setPhase("provider");
           }
+          evt.preventDefault();
           return;
         }
         if (evt.name === "up") {
           setModelCursor((c) => (c > 0 ? c - 1 : filteredModels.length - 1));
+          evt.preventDefault();
           return;
         }
         if (evt.name === "down") {
           setModelCursor((c) => (c < filteredModels.length - 1 ? c + 1 : 0));
+          evt.preventDefault();
           return;
         }
         if (evt.name === "return") {
@@ -340,17 +343,20 @@ export function SetupStep({
               onForward();
             }, 600);
           }
+          evt.preventDefault();
           return;
         }
         if (evt.name === "backspace") {
           setSearchQuery((q) => q.slice(0, -1));
           setModelCursor(0);
+          evt.preventDefault();
           return;
         }
         if (evt.sequence && evt.sequence.length === 1 && !evt.ctrl && !evt.meta) {
           setSearchQuery((q) => q + evt.sequence);
           setModelCursor(0);
         }
+        evt.preventDefault();
         return;
       }
 
@@ -358,21 +364,28 @@ export function SetupStep({
         if (evt.name === "return") {
           setPhase("key");
           setKeyInput("");
+          evt.preventDefault();
           return;
         }
         if (evt.name === "escape") {
           setPhase("provider");
+          evt.preventDefault();
           return;
         }
+        evt.preventDefault();
         return;
       }
 
-      if (phase === "fetching") return;
+      if (phase === "fetching") {
+        evt.preventDefault();
+        return;
+      }
 
       if (phase === "key") {
         if (evt.name === "escape") {
           setPhase("provider");
           setKeyInput("");
+          evt.preventDefault();
           return;
         }
         if (evt.name === "return") {
@@ -381,32 +394,39 @@ export function SetupStep({
             if (result.success) {
               refresh();
               fetchModels(selectedProvider);
-              return;
             }
           }
+          evt.preventDefault();
           return;
         }
         if (evt.name === "backspace") {
           setKeyInput((v) => v.slice(0, -1));
+          evt.preventDefault();
           return;
         }
         if (evt.sequence && evt.sequence.length === 1 && !evt.ctrl && !evt.meta) {
           setKeyInput((v) => v + evt.sequence);
         }
+        evt.preventDefault();
         return;
       }
 
       if (evt.name === "up") {
         setCursor((c) => (c > 0 ? c - 1 : PROVIDERS.length - 1));
+        evt.preventDefault();
         return;
       }
       if (evt.name === "down") {
         setCursor((c) => (c < PROVIDERS.length - 1 ? c + 1 : 0));
+        evt.preventDefault();
         return;
       }
       if (evt.name === "return") {
         const provider = PROVIDERS[cursor];
-        if (!provider) return;
+        if (!provider) {
+          evt.preventDefault();
+          return;
+        }
         setSelectedProvider(provider);
         if (hasKey(provider.id) || (provider.autoDetect && autoAvailMap[provider.id])) {
           fetchModels(provider);
@@ -414,7 +434,10 @@ export function SetupStep({
           setPhase("key");
           setKeyInput("");
         }
+        evt.preventDefault();
+        return;
       }
+      evt.preventDefault();
     };
 
     useKeyboard(handleKeyboard);

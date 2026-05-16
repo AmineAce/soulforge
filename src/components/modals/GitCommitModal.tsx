@@ -80,12 +80,15 @@ export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, o
     if (!visible) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "tab") {
       setStageAll((p) => !p);
+      evt.preventDefault();
       return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

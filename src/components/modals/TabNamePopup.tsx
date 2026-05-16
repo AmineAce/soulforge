@@ -23,20 +23,24 @@ export function TabNamePopup({ visible, placeholder, onSubmit, onClose }: Props)
     if (!visible) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return") {
       onSubmit(value.trim());
+      evt.preventDefault();
       return;
     }
     if (evt.name === "backspace" || evt.name === "delete") {
       setValue((p) => p.slice(0, -1));
+      evt.preventDefault();
       return;
     }
     const ch = evt.sequence;
     if (typeof ch === "string" && ch.length === 1 && ch >= " " && !evt.ctrl && !evt.meta) {
       setValue((p) => (p.length >= NAME_MAX ? p : p + ch));
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

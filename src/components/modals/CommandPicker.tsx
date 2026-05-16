@@ -326,6 +326,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
     if (evt.name === "escape") {
       config.onCancel?.();
       onClose();
+      evt.preventDefault();
       return;
     }
 
@@ -339,6 +340,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
           } else {
             setToggleState((prev) => ({ ...prev, [toggle.key]: !prev[toggle.key] }));
           }
+          evt.preventDefault();
           return;
         }
       }
@@ -352,6 +354,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
             sel.onChange(next);
             return { ...prev, [sel.key]: next };
           });
+          evt.preventDefault();
           return;
         }
       }
@@ -361,6 +364,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
     if (config.searchable && focusZone === ZONE_LIST) {
       if (evt.name === "backspace" || evt.name === "delete") {
         setSearch((prev) => prev.slice(0, -1));
+        evt.preventDefault();
         return;
       }
       if (
@@ -372,10 +376,22 @@ export function CommandPicker({ visible, config, onClose }: Props) {
         evt.name !== "k"
       ) {
         setSearch((prev) => prev + evt.name);
+        evt.preventDefault();
         return;
       }
     }
 
+    const arrowKey =
+      evt.name === "up" || evt.name === "down" || evt.name === "k" || evt.name === "j";
+    if (arrowKey) evt.preventDefault();
+    if (
+      evt.name === "return" ||
+      evt.name === "left" ||
+      evt.name === "right" ||
+      evt.name === "h" ||
+      evt.name === "l"
+    )
+      evt.preventDefault();
     // Up/down navigation — moves between list items and control zones
     if (evt.name === "up" || evt.name === "k") {
       if (focusZone > 0) {

@@ -306,52 +306,62 @@ export function UiDemo({ visible, onClose }: Props) {
     if (tab === "data" && searchMode) {
       if (evt.name === "escape") {
         setSearchMode(false);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "return") {
         setSearchMode(false);
         setRow(0);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "backspace") {
         setQuery((q) => q.slice(0, -1));
         setRow(0);
+        evt.preventDefault();
         return;
       }
       const ch = evt.sequence;
       if (typeof ch === "string" && ch.length === 1 && ch >= " " && ch !== "\x7f") {
         setQuery((q) => q + ch);
         setRow(0);
-        return;
       }
+      evt.preventDefault();
       return;
     }
 
     if (tab === "picker" && pickerSearchMode) {
       if (evt.name === "escape") {
         setPickerSearchMode(false);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "return") {
         setPickerSearchMode(false);
         setPickerIdx(0);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "backspace") {
         setPickerQuery((q) => q.slice(0, -1));
         setPickerIdx(0);
+        evt.preventDefault();
         return;
       }
       const ch = evt.sequence;
       if (typeof ch === "string" && ch.length === 1 && ch >= " " && ch !== "\x7f") {
         setPickerQuery((q) => q + ch);
         setPickerIdx(0);
-        return;
       }
+      evt.preventDefault();
       return;
     }
 
-    if (evt.name === "escape") return onClose();
+    if (evt.name === "escape") {
+      onClose();
+      evt.preventDefault();
+      return;
+    }
     if (evt.name === "tab") {
       const idx = TABS.findIndex((t) => t.id === tab);
       const next = TABS[(idx + (evt.shift ? TABS.length - 1 : 1)) % TABS.length];
@@ -359,14 +369,17 @@ export function UiDemo({ visible, onClose }: Props) {
         setTab(next.id);
         setRow(0);
       }
+      evt.preventDefault();
       return;
     }
     if (tab === "data" && evt.name === "/") {
       setSearchMode(true);
+      evt.preventDefault();
       return;
     }
     if (tab === "picker" && evt.name === "/") {
       setPickerSearchMode(true);
+      evt.preventDefault();
       return;
     }
 
@@ -469,6 +482,7 @@ export function UiDemo({ visible, onClose }: Props) {
           setFlash({ kind: "ok", message: `Selected ${u.first} ${u.last} · ${u.email}` });
           setTimeout(() => setFlash(null), 2500);
         }
+        evt.preventDefault();
       } else if (tab === "flash") {
         const messages: Array<{ kind: "ok" | "err" | "info"; message: string }> = [
           { kind: "ok", message: "Saved — config persisted to global scope" },
@@ -477,8 +491,11 @@ export function UiDemo({ visible, onClose }: Props) {
         ];
         setFlash(messages[row] ?? null);
         setTimeout(() => setFlash(null), 2500);
+        evt.preventDefault();
       }
+      return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

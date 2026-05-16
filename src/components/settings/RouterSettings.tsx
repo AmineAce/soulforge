@@ -288,9 +288,11 @@ export function RouterSettings({
           ? CONFIG_SCOPES[(sIdx - 1 + CONFIG_SCOPES.length) % CONFIG_SCOPES.length]
           : CONFIG_SCOPES[(sIdx + 1) % CONFIG_SCOPES.length];
       if (next && next !== scope) onScopeChange(next, scope);
+      evt.preventDefault();
       return;
     }
     handleCursorNavKey(evt, setCursor, rows.length);
+    evt.preventDefault();
   });
 
   if (!visible) return null;

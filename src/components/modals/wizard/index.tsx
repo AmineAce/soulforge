@@ -67,20 +67,25 @@ export function FirstRunWizard({ visible, hasModel, activeModel, onSelectModel, 
     if (inputLocked) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "right" || evt.name === "l" || evt.name === "tab") {
       goForward();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "left" || evt.name === "h") {
       goBack();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return" && step !== "setup" && step !== "theme") {
       goForward();
+      evt.preventDefault();
       return;
     }
+    evt.preventDefault();
   };
 
   useKeyboard(handleKeyboard);

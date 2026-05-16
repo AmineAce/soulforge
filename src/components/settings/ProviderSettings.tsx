@@ -632,25 +632,30 @@ export function ProviderSettings({
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "tab" || (evt.shift && evt.name === "tab")) {
       const dir = evt.shift ? -1 : 1;
       const next = (tabIdx + dir + TABS.length) % TABS.length;
       setTab(TABS[next] as ProviderTab);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "up") {
       stepCursor(-1);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down") {
       stepCursor(1);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return" || evt.name === " ") {
       const item = items[cursor];
       if (item && item.type !== "section" && item.type !== "info") cycleValue(item);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
@@ -673,8 +678,10 @@ export function ProviderSettings({
         }
         return next ?? prev;
       });
+      evt.preventDefault();
       return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

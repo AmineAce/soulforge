@@ -120,10 +120,14 @@ export function SetupGuide({ visible, onClose, onSystemMessage }: Props) {
 
   useKeyboard((evt) => {
     if (!visible) return;
-    if (installing) return;
+    if (installing) {
+      evt.preventDefault();
+      return;
+    }
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
 
@@ -135,6 +139,7 @@ export function SetupGuide({ visible, onClose, onSystemMessage }: Props) {
       } else {
         setTab("fonts");
       }
+      evt.preventDefault();
       return;
     }
 

@@ -135,6 +135,7 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
     if (renameId) {
       if (evt.name === "escape") {
         setRenameId(null);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "return") {
@@ -146,16 +147,19 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
           refresh();
         }
         setRenameId(null);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "backspace" || evt.name === "delete") {
         setRenameValue((p) => p.slice(0, -1));
+        evt.preventDefault();
         return;
       }
       const ch = evt.sequence;
       if (typeof ch === "string" && ch.length === 1 && ch >= " " && !evt.ctrl && !evt.meta) {
         setRenameValue((p) => p + ch);
       }
+      evt.preventDefault();
       return;
     }
 
@@ -170,19 +174,23 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
       } else {
         setConfirmClear(false);
       }
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "up") {
       setCursor((c) => (c > 0 ? c - 1 : Math.max(0, filtered.length - 1)));
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down") {
       setCursor((c) => (c < filtered.length - 1 ? c + 1 : 0));
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return") {
@@ -191,11 +199,15 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
         onRestore(s.id);
         onClose();
       }
+      evt.preventDefault();
       return;
     }
     if (evt.ctrl && evt.name === "d") {
       const s = filtered[cursorRef.current];
-      if (!s) return;
+      if (!s) {
+        evt.preventDefault();
+        return;
+      }
       void (async () => {
         const ok = await confirm({
           title: "Delete session?",
@@ -208,6 +220,7 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
         popFlash("ok", `Deleted ${s.title}`);
         refresh();
       })();
+      evt.preventDefault();
       return;
     }
     if (evt.ctrl && evt.name === "r") {
@@ -216,10 +229,14 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
         setRenameId(s.id);
         setRenameValue(s.title);
       }
+      evt.preventDefault();
       return;
     }
     if (evt.ctrl && evt.name === "x") {
-      if (sessions.length === 0) return;
+      if (sessions.length === 0) {
+        evt.preventDefault();
+        return;
+      }
       void (async () => {
         const ok = await confirm({
           title: "Clear all sessions?",
@@ -232,20 +249,24 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
         popFlash("ok", `Cleared ${count} sessions`);
         refresh();
       })();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "backspace" || evt.name === "delete") {
       setQuery((p) => p.slice(0, -1));
+      evt.preventDefault();
       return;
     }
     if (evt.ctrl && evt.name === "u") {
       setQuery("");
+      evt.preventDefault();
       return;
     }
     const ch = evt.sequence;
     if (typeof ch === "string" && ch.length === 1 && ch >= " " && !evt.ctrl && !evt.meta) {
       setQuery((p) => p + ch);
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;
