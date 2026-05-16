@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import type { ChatMessage } from "../../types/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 export interface FileEntry {
   path: string;
@@ -204,7 +205,7 @@ function ChangesSection({ messages, cwd }: PanelProps) {
           <text fg={t.textDim}>No changes yet</text>
         </box>
       ) : (
-        <scrollbox flexGrow={1} flexShrink={1} minHeight={0}>
+        <scrollbox flexGrow={1} flexShrink={1} minHeight={0} scrollAcceleration={listScrollAccel}>
           {rows.map((row, i) => {
             const prefix = buildPrefix(row);
             if (row.isDir) {

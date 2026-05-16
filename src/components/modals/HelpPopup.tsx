@@ -8,6 +8,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
 import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 interface Props {
   visible: boolean;
@@ -142,7 +143,7 @@ export function HelpPopup({ visible, onClose }: Props) {
       ]}
     >
       <Section>
-        <scrollbox ref={scrollRef} height={viewportRows}>
+        <scrollbox ref={scrollRef} height={viewportRows} scrollAcceleration={listScrollAccel}>
           {lines.map((line, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static list
             <InfoLine key={`h-${i}`} line={line} width={contentW} />

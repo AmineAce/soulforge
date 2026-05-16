@@ -1,3 +1,13 @@
+export {
+  type BorderSet,
+  DOTTED_RAIL,
+  DOUBLE_RAIL,
+  HEAVY_RAIL,
+  LIGHT_RAIL,
+  RAIL_BORDER,
+  TREE_PIPE,
+  TREE_SPACE,
+} from "./borders.js";
 export type {
   ButtonProps,
   CheckboxProps,
@@ -43,6 +53,13 @@ export type { SearchProps } from "./Search.js";
 export { Search } from "./Search.js";
 export type { Segment, SegmentedControlProps } from "./SegmentedControl.js";
 export { SegmentedControl } from "./SegmentedControl.js";
+export {
+  chatScrollAccel,
+  compactScrollAccel,
+  getScrollAccel,
+  listScrollAccel,
+  streamScrollProps,
+} from "./scroll.js";
 export type { TableAlign, TableColumn, TableProps } from "./Table.js";
 export { Table } from "./Table.js";
 export type { VirtualListProps } from "./VirtualList.js";

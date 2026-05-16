@@ -19,6 +19,7 @@ import {
   Section,
   VSpacer,
 } from "../ui/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 export interface LogViewerEntry {
   id: string;
@@ -221,7 +222,7 @@ export function LogViewer<T extends LogViewerEntry>({
         ]}
       >
         <Section>
-          <scrollbox ref={detailScrollRef} height={detailRows}>
+          <scrollbox ref={detailScrollRef} height={detailRows} scrollAcceleration={listScrollAccel}>
             {detailLines.map((line, i) => {
               const isSection = line.startsWith("──");
               return (
@@ -284,7 +285,7 @@ export function LogViewer<T extends LogViewerEntry>({
           </box>
         ) : (
           <box flexDirection="column" backgroundColor={t.bgPopup}>
-            <scrollbox ref={listScrollRef} height={listRows}>
+            <scrollbox ref={listScrollRef} height={listRows} scrollAcceleration={listScrollAccel}>
               {filtered.map((e, i) => {
                 const isActive = i === cursor;
                 const rowBg = isActive ? t.bgPopupHighlight : t.bgPopup;

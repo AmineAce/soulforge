@@ -15,6 +15,7 @@ import {
   PremiumPopup,
   Section,
 } from "../ui/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 const POLL_MS = 2000;
 
@@ -248,7 +249,7 @@ export function LspStatusPopup({ visible, onClose }: Props) {
         ]}
       >
         <Section>
-          <scrollbox ref={detailScrollRef} height={detailRows}>
+          <scrollbox ref={detailScrollRef} height={detailRows} scrollAcceleration={listScrollAccel}>
             {detailLines.map((line, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: positional
               <InfoLine key={`d-${i}`} line={line} width={contentW} />

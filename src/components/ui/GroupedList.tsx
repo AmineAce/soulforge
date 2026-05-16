@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import { icon as iconFn } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { Spinner } from "../layout/shared.js";
+import { listScrollAccel } from "./scroll.js";
 
 const BOLD = 1;
 const DIM = 2;
@@ -247,7 +248,7 @@ function GroupedListImpl<Item extends GroupedItem>({
 
   return (
     <box flexDirection="column" backgroundColor={fill} width={width}>
-      <scrollbox ref={scrollRef} height={viewportHeight}>
+      <scrollbox ref={scrollRef} height={viewportHeight} scrollAcceleration={listScrollAccel}>
         {rows.map((r, idx) => {
           const isSelected = idx === selectedIndex;
           if (r.kind === "group") {

@@ -1,6 +1,7 @@
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { MAX_TERMINALS, type TerminalEntry, useTerminalStore } from "../../stores/terminals.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 function shortenCwd(cwd: string): string {
   const home = process.env.HOME ?? "";
@@ -98,7 +99,7 @@ function TerminalList() {
           </text>
         </box>
       ) : (
-        <scrollbox flexGrow={1} flexShrink={1} minHeight={0}>
+        <scrollbox flexGrow={1} flexShrink={1} minHeight={0} scrollAcceleration={listScrollAccel}>
           {terminals.map((entry, i) => (
             <TerminalRow
               key={entry.id}

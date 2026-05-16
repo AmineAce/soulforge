@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useTheme } from "../../core/theme/index.js";
+import { listScrollAccel } from "./scroll.js";
 
 const DIM = 2;
 
@@ -94,7 +95,7 @@ export function VirtualList<Item>({
 
   return (
     <box flexDirection="column" backgroundColor={fill} width={width}>
-      <scrollbox ref={scrollRef} height={viewportHeight}>
+      <scrollbox ref={scrollRef} height={viewportHeight} scrollAcceleration={listScrollAccel}>
         {items.map((item, idx) => {
           const key = keyExtractor ? keyExtractor(item, idx) : `vl-${idx}`;
           const node = renderItem(item, {

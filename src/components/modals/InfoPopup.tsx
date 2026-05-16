@@ -10,6 +10,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
 import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 // Backwards-compat alias — older callers may import this name.
 export type InfoPopupLine = InfoLineData;
@@ -83,7 +84,7 @@ export function InfoPopup({ visible, config, onClose }: Props) {
       ]}
     >
       <Section>
-        <scrollbox ref={scrollRef} height={viewportRows}>
+        <scrollbox ref={scrollRef} height={viewportRows} scrollAcceleration={listScrollAccel}>
           {config.lines.map((line, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static lines array
             <InfoLine key={`l-${i}`} line={line} width={contentW} labelWidth={labelW} />

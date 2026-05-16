@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import { useTheme } from "../../core/theme/index.js";
 import type { Checkpoint } from "../../stores/checkpoints.js";
 import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 interface CheckpointRailProps {
   checkpoints: Checkpoint[];
@@ -80,6 +81,7 @@ export const CheckpointRail = memo(function CheckpointRail({
         minHeight={0}
         stickyScroll={isLive}
         stickyStart="bottom"
+        scrollAcceleration={listScrollAccel}
         focusable={false}
         verticalScrollbarOptions={SCROLLBAR_HIDDEN}
         horizontalScrollbarOptions={SCROLLBAR_HIDDEN}

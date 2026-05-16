@@ -42,6 +42,7 @@ import { PlanProgress } from "../plan/PlanProgress.js";
 import { PlanReviewPrompt } from "../plan/PlanReviewPrompt.js";
 import { TaskProgress, useTaskList } from "../plan/TaskProgress.js";
 import { QuestionPrompt } from "../QuestionPrompt.js";
+import { chatScrollAccel } from "../ui/scroll.js";
 import { AnimatedBorder } from "./AnimatedBorder.js";
 import { ChangedFilesBar, ChangesPanel } from "./ChangedFiles.js";
 import { LandingPage } from "./LandingPage.js";
@@ -725,6 +726,7 @@ export const TabInstance = memo(function TabInstance({
                 ref={scrollRef}
                 stickyScroll={true}
                 stickyStart="bottom"
+                scrollAcceleration={chatScrollAccel}
                 viewportCulling={true}
                 focusable={false}
                 flexGrow={1}

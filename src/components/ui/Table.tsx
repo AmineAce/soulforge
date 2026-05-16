@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { memo, type ReactNode, useEffect, useRef } from "react";
 import { useTheme } from "../../core/theme/index.js";
+import { listScrollAccel } from "./scroll.js";
 
 const BOLD = 1;
 const DIM = 2;
@@ -137,7 +138,7 @@ function TableImpl<Row>({
           </text>
         </box>
       ) : (
-        <scrollbox ref={scrollRef} height={viewportHeight}>
+        <scrollbox ref={scrollRef} height={viewportHeight} scrollAcceleration={listScrollAccel}>
           {rows.map((row, rIdx) => {
             const isSelected = rIdx === selectedIndex;
             const rowBg = isSelected ? t.bgPopupHighlight : fill;

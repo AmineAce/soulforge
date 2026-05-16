@@ -33,6 +33,7 @@ import {
   Table,
   VSpacer,
 } from "../ui/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 const BOLD = TextAttributes.BOLD;
 const SIDEBAR_W = 22;
@@ -558,7 +559,7 @@ function UsagePane({
         </box>
       )}
 
-      <scrollbox ref={ref} height={scrollH}>
+      <scrollbox ref={ref} height={scrollH} scrollAcceleration={listScrollAccel}>
         <Section title="Tokens">
           <Field
             label="Input"
@@ -711,7 +712,7 @@ function PromptPane({
   }
 
   return (
-    <scrollbox ref={ref} height={scrollH}>
+    <scrollbox ref={ref} height={scrollH} scrollAcceleration={listScrollAccel}>
       <Section
         title="System Prompt"
         description={`${fmtTokens(Math.ceil(totalSysChars / 4))} tokens across ${String(activeSections.length)} sections`}
@@ -816,7 +817,11 @@ function CostPane({
             No usage yet.
           </text>
         ) : (
-          <scrollbox ref={ref} height={Math.max(4, scrollH - 4)}>
+          <scrollbox
+            ref={ref}
+            height={Math.max(4, scrollH - 4)}
+            scrollAcceleration={listScrollAccel}
+          >
             <Table
               width={contentW - 4}
               maxRows={rows.length}
@@ -1066,7 +1071,11 @@ function DispatchPane({
             No agents recorded.
           </text>
         ) : (
-          <scrollbox ref={ref} height={Math.max(4, scrollH - 8)}>
+          <scrollbox
+            ref={ref}
+            height={Math.max(4, scrollH - 8)}
+            scrollAcceleration={listScrollAccel}
+          >
             <Table
               width={contentW - 4}
               maxRows={rows.length}
@@ -1157,7 +1166,7 @@ function SystemPane({
   }, [scrollOffset]);
 
   return (
-    <scrollbox ref={ref} height={scrollH}>
+    <scrollbox ref={ref} height={scrollH} scrollAcceleration={listScrollAccel}>
       <Section title="Soul Map">
         <box flexDirection="row" backgroundColor={t.bgPopup}>
           <text bg={t.bgPopup} fg={rmStatusColor}>

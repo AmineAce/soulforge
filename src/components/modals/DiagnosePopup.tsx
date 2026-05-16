@@ -5,6 +5,7 @@ import type { BackendProbeResult, HealthCheckResult } from "../../core/intellige
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { useSpinnerFrameRef } from "../layout/shared.js";
 import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
+import { listScrollAccel } from "../ui/scroll.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -202,7 +203,7 @@ export function DiagnosePopup({ visible, onClose, runHealthCheck }: Props) {
     >
       <Section>
         {lines.length > 0 ? (
-          <scrollbox ref={scrollRef} height={viewportRows}>
+          <scrollbox ref={scrollRef} height={viewportRows} scrollAcceleration={listScrollAccel}>
             {lines.map((line, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: positional
               <InfoLine key={`d-${i}`} line={line} width={contentW} labelWidth={28} />
