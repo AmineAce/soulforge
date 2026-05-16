@@ -146,11 +146,13 @@ function handlePlan(input: string, ctx: CommandContext): void {
   if (arg) {
     ctx.chat.setPlanMode(true);
     ctx.chat.setPlanRequest(arg);
+    ctx.setForgeMode("plan");
     sysMsg(ctx, `Plan mode enabled. Task: ${arg}`);
   } else {
     const newState = !ctx.chat.planMode;
     ctx.chat.setPlanMode(newState);
     if (!newState) ctx.chat.setPlanRequest(null);
+    ctx.setForgeMode(newState ? "plan" : "default");
     sysMsg(ctx, `Plan mode ${newState ? "enabled" : "disabled"}.`);
   }
 }
