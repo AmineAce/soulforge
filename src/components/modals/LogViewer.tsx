@@ -155,12 +155,14 @@ export function LogViewer<T extends LogViewerEntry>({
       if (evt.name === "escape") {
         setDetailIdx(null);
         detailOffset.current = 0;
+        evt.preventDefault();
         return;
       }
       if (evt.name === "up" || evt.name === "k") {
         const n = Math.max(0, detailOffset.current - 1);
         detailOffset.current = n;
         detailScrollRef.current?.scrollTo(n);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "down" || evt.name === "j") {
@@ -168,21 +170,25 @@ export function LogViewer<T extends LogViewerEntry>({
         const n = Math.min(maxOff, detailOffset.current + 1);
         detailOffset.current = n;
         detailScrollRef.current?.scrollTo(n);
+        evt.preventDefault();
         return;
       }
       if (evt.ctrl && evt.name === "y" && selectedEntry) {
         copyToClipboard(config.getCopyText(selectedEntry));
         showCopied();
       }
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return") {
       if (filtered[cursorRef.current]) setDetailIdx(cursorRef.current);
+      evt.preventDefault();
       return;
     }
     if (evt.ctrl && evt.name === "y") {
@@ -191,15 +197,22 @@ export function LogViewer<T extends LogViewerEntry>({
         copyToClipboard(config.getCopyText(e));
         showCopied();
       }
+      evt.preventDefault();
       return;
     }
 
-    if (handleCursorNavKey(evt, setCursor, filtered.length)) return;
+    if (handleCursorNavKey(evt, setCursor, filtered.length)) {
+      evt.preventDefault();
+      return;
+    }
     if (handleTextInputKey(evt, setQuery)) {
       listOffset.current = 0;
       listScrollRef.current?.scrollTo(0);
       setCursor(0);
+      evt.preventDefault();
+      return;
     }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

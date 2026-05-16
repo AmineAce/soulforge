@@ -199,12 +199,14 @@ export function LspStatusPopup({ visible, onClose }: Props) {
       if (evt.name === "escape") {
         setDetailIdx(null);
         detailOffset.current = 0;
+        evt.preventDefault();
         return;
       }
       if (evt.name === "up" || evt.name === "k") {
         const n = Math.max(0, detailOffset.current - 1);
         detailOffset.current = n;
         detailScrollRef.current?.scrollTo(n);
+        evt.preventDefault();
         return;
       }
       if (evt.name === "down" || evt.name === "j") {
@@ -212,13 +214,16 @@ export function LspStatusPopup({ visible, onClose }: Props) {
         const n = Math.min(maxOff, detailOffset.current + 1);
         detailOffset.current = n;
         detailScrollRef.current?.scrollTo(n);
+        evt.preventDefault();
         return;
       }
+      evt.preventDefault();
       return;
     }
 
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "return") {
@@ -226,9 +231,11 @@ export function LspStatusPopup({ visible, onClose }: Props) {
       if (r?.kind === "item" && (r.item as ServerRow).detail) {
         setDetailIdx(cursor);
       }
+      evt.preventDefault();
       return;
     }
     handleCursorNavKey(evt, setCursor, rows.length);
+    evt.preventDefault();
   });
 
   if (!visible) return null;

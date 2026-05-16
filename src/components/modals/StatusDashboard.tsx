@@ -342,6 +342,7 @@ export function StatusDashboard({
     if (!visible) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "tab") {
@@ -349,6 +350,7 @@ export function StatusDashboard({
       const dir = evt.shift ? -1 : 1;
       setTab(TABS[(idx + dir + TABS.length) % TABS.length] as Tab);
       setScrollOffset(0);
+      evt.preventDefault();
       return;
     }
     if (isMultiTab && scopeRelevant && (evt.name === "left" || evt.name === "right")) {
@@ -362,16 +364,30 @@ export function StatusDashboard({
         return scopeIds[next] ?? prev;
       });
       setScrollOffset(0);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "up") {
       setScrollOffset((p) => Math.max(0, p - 1));
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down") {
       setScrollOffset((p) => p + 1);
+      evt.preventDefault();
       return;
     }
+    if (evt.name === "pageup") {
+      setScrollOffset((p) => Math.max(0, p - 10));
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "pagedown") {
+      setScrollOffset((p) => p + 10);
+      evt.preventDefault();
+      return;
+    }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

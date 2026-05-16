@@ -159,10 +159,12 @@ export function DiagnosePopup({ visible, onClose, runHealthCheck }: Props) {
     if (!visible) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     if (evt.name === "r") {
       run();
+      evt.preventDefault();
       return;
     }
     const maxOff = Math.max(0, lines.length - viewportRows);
@@ -170,13 +172,31 @@ export function DiagnosePopup({ visible, onClose, runHealthCheck }: Props) {
       const n = Math.max(0, cursor - 1);
       setCursor(n);
       scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down" || evt.name === "j") {
       const n = Math.min(maxOff, cursor + 1);
       setCursor(n);
       scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
+      return;
     }
+    if (evt.name === "pageup") {
+      const n = Math.max(0, cursor - viewportRows);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "pagedown") {
+      const n = Math.min(maxOff, cursor + viewportRows);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
+      return;
+    }
+    evt.preventDefault();
   });
 
   if (!visible) return null;

@@ -53,6 +53,7 @@ export function InfoPopup({ visible, config, onClose }: Props) {
     if (!visible || !config) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     const maxOffset = Math.max(0, config.lines.length - viewportRows);
@@ -60,13 +61,31 @@ export function InfoPopup({ visible, config, onClose }: Props) {
       const next = Math.max(0, cursor - 1);
       setCursor(next);
       scrollRef.current?.scrollTo(next);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down" || evt.name === "j") {
       const next = Math.min(maxOffset, cursor + 1);
       setCursor(next);
       scrollRef.current?.scrollTo(next);
+      evt.preventDefault();
+      return;
     }
+    if (evt.name === "pageup") {
+      const next = Math.max(0, cursor - viewportRows);
+      setCursor(next);
+      scrollRef.current?.scrollTo(next);
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "pagedown") {
+      const next = Math.min(maxOffset, cursor + viewportRows);
+      setCursor(next);
+      scrollRef.current?.scrollTo(next);
+      evt.preventDefault();
+      return;
+    }
+    evt.preventDefault();
   });
 
   if (!visible || !config) return null;
