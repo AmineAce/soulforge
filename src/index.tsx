@@ -366,6 +366,10 @@ export async function start(opts: StartOptions): Promise<void> {
     // Cap render rate to a steady 60fps so streaming chat + animations don't
     // burn CPU on fast terminals (default is uncapped).
     targetFps: 60,
+    // Track mouse motion so onMouseOver/onMouseOut fire on hovered rows
+    // (user messages, tool rows, reasoning fold). Hold Shift in most
+    // terminals to bypass the renderer and select text natively.
+    enableMouseMovement: true,
   });
   renderer = r;
   // Set initial terminal title; per-tab/session updates wire in App.tsx.
