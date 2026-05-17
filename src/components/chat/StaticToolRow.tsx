@@ -9,6 +9,7 @@ import {
   TOOL_LABELS_DONE,
   type ToolCategory,
 } from "../../core/tool-display.js";
+import { useHover } from "../../hooks/useHover.js";
 import { DiffView } from "./DiffView.js";
 import { ImageDisplay } from "./ImageDisplay.js";
 import {
@@ -82,6 +83,7 @@ function StaticToolRowImpl({
   suppressExpanded = false,
 }: StaticToolRowProps) {
   const t = useTheme();
+  const [hovered, hoverHandlers] = useHover();
   const rc = {
     textDone: t.textMuted,
     toolNameActive: t.brand,
@@ -90,7 +92,11 @@ function StaticToolRowImpl({
     error: t.error,
   };
   return (
-    <box flexDirection="column">
+    <box
+      flexDirection="column"
+      backgroundColor={hovered ? t.bgElevated : undefined}
+      {...hoverHandlers}
+    >
       <box height={1} flexShrink={0}>
         <text truncate>
           {statusContent}

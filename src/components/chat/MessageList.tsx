@@ -249,6 +249,7 @@ function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: bo
   );
 }
 
+import { useHover } from "../../hooks/useHover.js";
 import { RAIL_BORDER } from "../ui/borders.js";
 import { EDIT_NAMES, groupToolCalls } from "./tool-grouping.js";
 
@@ -629,10 +630,12 @@ function UserImageAttachments({ images }: { images: ImageAttachment[] }) {
 
 const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMessage }) {
   const t = useTheme();
+  const [hovered, hoverHandlers] = useHover();
   const time = formatTime(msg.timestamp);
   const expanded = useReasoningExpanded();
   const isPlan = isPlanExecution(msg.content);
   const borderColor = t.accentUser;
+  const bg = hovered ? t.bgElevated : t.bgUser;
 
   if (isPlan && !expanded) {
     const title = parsePlanTitle(msg.content);
@@ -647,7 +650,8 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
         paddingLeft={2}
         paddingRight={1}
         paddingY={1}
-        backgroundColor={t.bgUser}
+        backgroundColor={bg}
+        {...hoverHandlers}
       >
         <box flexDirection="row">
           <text fg={borderColor} attributes={TextAttributes.BOLD}>
@@ -677,7 +681,8 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
       paddingLeft={2}
       paddingRight={1}
       paddingY={1}
-      backgroundColor={t.bgUser}
+      backgroundColor={bg}
+      {...hoverHandlers}
     >
       <box flexDirection="row">
         <text fg={borderColor} attributes={TextAttributes.BOLD}>
@@ -705,8 +710,10 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
 
 const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMessage }) {
   const t = useTheme();
+  const [hovered, hoverHandlers] = useHover();
   const time = formatTime(msg.timestamp);
   const expanded = useReasoningExpanded();
+  const bg = hovered ? t.bgElevated : t.bgUser;
 
   return (
     <box flexDirection="column" alignItems="flex-end" marginBottom={1}>
@@ -716,7 +723,8 @@ const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMe
         borderColor={t.accentUser}
         paddingX={2}
         paddingY={1}
-        backgroundColor={t.bgUser}
+        backgroundColor={bg}
+        {...hoverHandlers}
       >
         {truncateUserContent(
           msg.images ? msg.content.replace(/\[image-\d+\]\s*/g, "").trim() : msg.content,

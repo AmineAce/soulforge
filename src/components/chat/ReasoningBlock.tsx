@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
+import { useHover } from "../../hooks/useHover.js";
 import { Spinner } from "../layout/shared.js";
 import { Markdown } from "./Markdown.js";
 
@@ -20,6 +21,8 @@ function ThinkingSpinner() {
 
 export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
   const t = useTheme();
+
+  const [hovered, hoverHandlers] = useHover();
 
   const lineCount = useMemo(() => {
     let n = 1;
@@ -69,7 +72,14 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
   if (!expanded) {
     if (isStreaming) {
       return (
-        <box key={`${id}-col`} height={1} flexShrink={0} flexDirection="row">
+        <box
+          key={`${id}-col`}
+          height={1}
+          flexShrink={0}
+          flexDirection="row"
+          backgroundColor={hovered ? t.bgElevated : undefined}
+          {...hoverHandlers}
+        >
           <ThinkingSpinner />
           <text fg={t.textFaint}> ▶ {brainIcon()} reasoning</text>
           {lineCount > 1 && <text fg={t.textFaint}> ({String(lineCount)} lines)</text>}
@@ -82,8 +92,14 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
     const firstLine = firstLineRaw.trim().replace(/\*\*/g, "");
     const preview = firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
     return (
-      <box key={`${id}-col`} height={1} flexShrink={0}>
-        <text fg={t.textFaint} truncate>
+      <box
+        key={`${id}-col`}
+        height={1}
+        flexShrink={0}
+        backgroundColor={hovered ? t.bgElevated : undefined}
+        {...hoverHandlers}
+      >
+        <text fg={hovered ? t.textMuted : t.textFaint} truncate>
           <span fg={t.success}>▶</span> {brainIcon()}{" "}
           <span fg={t.textFaint}>{preview || "Reasoned"}</span>
           {lineCount > 1 && <span fg={t.textFaint}> ({String(lineCount)} lines)</span>}
