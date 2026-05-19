@@ -155,6 +155,9 @@ export interface ChatMessage {
   durationMs?: number;
   /** Attached images (pasted from clipboard or referenced by path). */
   images?: ImageAttachment[];
+  /** Segment index marking the model's commit boundary (set_lockin({on:false})).
+   *  Segments[0..committedAt) render as rail, segments[committedAt..) stream as final answer. */
+  lockInCommittedAt?: number;
 }
 
 export interface ToolCall {
@@ -359,10 +362,6 @@ export interface AppConfig {
   nerdFont?: boolean | null;
   /** Chat layout style. Default: "accent" */
   chatStyle?: ChatStyle;
-  /** Lock-in mode — hide agent narration during work, show only tools + final answer. Default: false */
-  lockIn?: boolean;
-  /** Lock-in control mode. "manual" = user toggles via /lock-in. "auto" = model flips via set_lockin tool. Default: "manual". */
-  lockInMode?: "manual" | "auto";
   /** Show reasoning/thinking content in chat. Default: true */
   showReasoning?: boolean;
   /** Add co-author trailer on AI-assisted commits. Default: true */

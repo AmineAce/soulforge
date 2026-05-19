@@ -462,25 +462,15 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
   });
 }
 
-function handleLockIn(_input: string, ctx: CommandContext): void {
-  // Cycle: manual-on → manual-off → auto → manual-on
-  const mode = ctx.lockInMode;
-  if (mode === "auto") {
-    ctx.setLockInMode("manual");
-    ctx.setLockIn(true);
-    ctx.saveToScope({ lockIn: true, lockInMode: "manual" }, "project");
-    sysMsg(ctx, "🔒 Locked in (manual) — narration hidden, tools + final answer only");
-    return;
-  }
-  if (ctx.lockIn) {
-    ctx.setLockIn(false);
-    ctx.saveToScope({ lockIn: false, lockInMode: "manual" }, "project");
-    sysMsg(ctx, "🔓 Lock-in off (manual) — full narration visible");
-    return;
-  }
-  ctx.setLockInMode("auto");
-  ctx.saveToScope({ lockInMode: "auto" }, "project");
-  sysMsg(ctx, "🤖 Lock-in auto — model decides via set_lockin tool");
+function handleVerboseTab(_input: string, ctx: CommandContext): void {
+  const next = !ctx.tabVerbose;
+  ctx.setTabVerbose(next);
+  sysMsg(
+    ctx,
+    next
+      ? "📜 Verbose on — raw stream of every text and tool segment"
+      : "🔒 Verbose off — narration folds into the tool rail",
+  );
 }
 
 function handleReasoning(_input: string, ctx: CommandContext): void {
@@ -788,7 +778,7 @@ const settingsHandlers: Record<string, (input: string, ctx: CommandContext) => v
   "chat-style": handleChatStyle,
   verbose: handleVerbose as CommandHandler,
   reasoning: handleReasoning,
-  "lock-in": handleLockIn,
+  "verbose-tab": handleVerboseTab,
   compaction: handleCompaction,
   "diff-style": handleDiffStyle,
   "agent-features": handleAgentFeatures,
@@ -807,7 +797,7 @@ function handleSettingsHub(_input: string, ctx: CommandContext): void {
   const chatStyle = ctx.chatStyle ?? "accent";
   const verbose = ctx.verbose ? "on" : "off";
   const reasoning = ctx.showReasoning ? "on" : "off";
-  const lockInStatus = ctx.lockInMode === "auto" ? "auto" : ctx.lockIn ? "on" : "off";
+  const verboseStatus = ctx.tabVerbose ? "on" : "off";
   const compaction = ctx.compactionStrategy ?? "v2";
   const diffStyle = ctx.diffStyle ?? "default";
   const nvimConfig = ctx.effectiveNvimConfig ?? "default";
@@ -821,7 +811,11 @@ function handleSettingsHub(_input: string, ctx: CommandContext): void {
       { value: "chat-style", label: `${icon("chat_style")} Chat Style`, description: chatStyle },
       { value: "verbose", label: `${icon("verbose")} Verbose`, description: verbose },
       { value: "reasoning", label: `${icon("brain")} Reasoning`, description: reasoning },
-      { value: "lock-in", label: `${icon("ghost")} Lock-in`, description: lockInStatus },
+      {
+        value: "verbose-tab",
+        label: `${icon("ghost")} Verbose render`,
+        description: verboseStatus,
+      },
       { value: "compaction", label: `${icon("compact")} Compaction`, description: compaction },
       { value: "diff-style", label: `${icon("git")} Diff Style`, description: diffStyle },
       { value: "agent-features", label: `${icon("system")} Agent Features`, description: "toggle" },
@@ -1045,7 +1039,7 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/font nerd", handleNerdFont);
   map.set("/font set", handleFont);
   map.set("/settings", handleSettingsHub);
-  map.set("/lock-in", handleLockIn);
+  map.set("/verbose-tab", handleVerboseTab);
   map.set("/theme", handleTheme);
   map.set("/timeouts", handleTimeouts);
   map.set("/watchdog", handleTimeouts); // alias for /timeouts

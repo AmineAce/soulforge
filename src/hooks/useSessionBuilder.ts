@@ -1,6 +1,7 @@
 import type { ModelMessage } from "ai";
 import type { SessionMeta, TabMeta } from "../core/sessions/types.js";
 import { useCheckpointStore } from "../stores/checkpoints.js";
+import { useUIStore } from "../stores/ui.js";
 import type { ChatMessage } from "../types/index.js";
 import type { WorkspaceSnapshot } from "./useChat.js";
 
@@ -71,6 +72,9 @@ export function buildSessionMeta({
       }
     }
 
+    const uiSnapshot = useUIStore.getState();
+    const verboseForTab = uiSnapshot.verboseByTab[tabState.id];
+
     tabs.push({
       id: tabState.id,
       label: tabState.label,
@@ -83,6 +87,7 @@ export function buildSessionMeta({
       tokenUsage: tabState.tokenUsage,
       messageRange: { startLine: 0, endLine: msgs.length },
       ...(checkpointTags.length > 0 ? { checkpointTags } : {}),
+      ...(verboseForTab !== undefined ? { verbose: verboseForTab } : {}),
     });
   }
 

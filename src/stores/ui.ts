@@ -92,8 +92,10 @@ interface UIState {
   reasoningExpanded: Record<string, boolean>;
   suspended: boolean;
   editorSplit: number;
-  lockIn: boolean;
-  lockInMode: "manual" | "auto";
+  /** Per-tab verbose render. false (default) = rail layout, true = raw stream of everything. */
+  verboseByTab: Record<string, boolean>;
+  /** Per-message, per-tool expand state. */
+  messageToolExpanded: Record<string, Record<string, boolean>>;
 
   openModal: (name: ModalName) => void;
   closeModal: (name: ModalName) => void;
@@ -120,9 +122,11 @@ interface UIState {
   toggleAllExpanded: (tabId: string) => void;
   setSuspended: (v: boolean) => void;
   cycleEditorSplit: () => void;
-  setLockIn: (v: boolean) => void;
-  toggleLockIn: () => void;
-  setLockInMode: (m: "manual" | "auto") => void;
+  setTabVerbose: (tabId: string, v: boolean) => void;
+  toggleTabVerbose: (tabId: string) => void;
+  ensureTabVerboseDefault: (tabId: string, def?: boolean) => void;
+  pruneTabVerbose: (tabId: string) => void;
+  toggleMessageTool: (msgId: string, toolId: string) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -142,8 +146,8 @@ export const useUIStore = create<UIState>()(
     reasoningExpanded: {},
     suspended: false,
     editorSplit: 60,
-    lockIn: true,
-    lockInMode: "manual" as const,
+    verboseByTab: {} as Record<string, boolean>,
+    messageToolExpanded: {} as Record<string, Record<string, boolean>>,
 
     openModal: (name) => set(() => ({ modals: { ...INITIAL_MODALS, [name]: true } })),
     closeModal: (name) => set((s) => ({ modals: { ...s.modals, [name]: false } })),
@@ -207,9 +211,29 @@ export const useUIStore = create<UIState>()(
         };
       }),
     setSuspended: (v) => set({ suspended: v }),
-    setLockIn: (v) => set({ lockIn: v }),
-    toggleLockIn: () => set((s) => ({ lockIn: !s.lockIn })),
-    setLockInMode: (m) => set({ lockInMode: m }),
+    setTabVerbose: (tabId, v) => set((s) => ({ verboseByTab: { ...s.verboseByTab, [tabId]: v } })),
+    toggleTabVerbose: (tabId) =>
+      set((s) => ({ verboseByTab: { ...s.verboseByTab, [tabId]: !s.verboseByTab[tabId] } })),
+    ensureTabVerboseDefault: (tabId, def) =>
+      set((s) => {
+        if (s.verboseByTab[tabId] !== undefined) return {};
+        return { verboseByTab: { ...s.verboseByTab, [tabId]: def ?? false } };
+      }),
+    pruneTabVerbose: (tabId) =>
+      set((s) => {
+        const { [tabId]: _v, ...verboseByTab } = s.verboseByTab;
+        return { verboseByTab };
+      }),
+    toggleMessageTool: (msgId, toolId) =>
+      set((s) => {
+        const cur = s.messageToolExpanded[msgId] ?? {};
+        return {
+          messageToolExpanded: {
+            ...s.messageToolExpanded,
+            [msgId]: { ...cur, [toolId]: !cur[toolId] },
+          },
+        };
+      }),
     cycleEditorSplit: () =>
       set((s) => {
         const splits = [40, 50, 60, 70];
@@ -235,7 +259,7 @@ export function resetUIStore(): void {
     showReasoning: true,
     reasoningExpanded: {},
     suspended: false,
-    lockIn: true,
-    lockInMode: "manual",
+    verboseByTab: {},
+    messageToolExpanded: {},
   });
 }

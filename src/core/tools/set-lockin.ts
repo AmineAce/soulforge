@@ -1,34 +1,25 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-interface SetLockinDeps {
-  getLockIn: () => boolean;
-  setLockIn: (v: boolean) => void;
-}
-
-export function createSetLockinTool(deps: SetLockinDeps) {
+export function createSetLockinTool() {
   return tool({
     description:
-      "Toggle lock-in display mode. Lock-in hides all narration between tool calls; only the tool rail + final answer reach the user. " +
-      "Call with on:true as your FIRST tool when starting any multi-step work (reads, edits, searches, dispatches). " +
-      "Call with on:false as your LAST tool before writing the final answer, so the user actually sees it. " +
-      "Skip both for pure-chat turns that use no other tools. " +
-      "Idempotent: calling with the current state is a no-op.",
+      "Signal the start of your final answer for THIS tab. " +
+      "Tool calls always render as a collapsed rail; this call tells the renderer where the final-answer text begins so it streams visibly to the user. " +
+      "Without this call, the renderer guesses (last text segment after tools = final). Calling it explicitly is more reliable, especially for turns with long interstitial narration. " +
+      "Call with on:false ONCE as your LAST tool, immediately before writing the final answer. " +
+      "on:true is rarely needed — only to rewind the boundary if you wrote text by mistake and want to do more tool work. " +
+      "Skip entirely for pure-chat turns with no tool work.",
     inputSchema: z.object({
       on: z
         .boolean()
         .describe(
-          "true = lock in (hide narration during work). false = lock out (reveal final answer).",
+          "false = mark the commit boundary so final text streams visibly. true = rewind the boundary (rare).",
         ),
       reason: z.string().optional().describe("Optional short reason — for logs/telemetry only."),
     }),
     execute: async ({ on }: { on: boolean; reason?: string }) => {
-      const current = deps.getLockIn();
-      if (current === on) {
-        return `already ${on ? "on" : "off"}`;
-      }
-      deps.setLockIn(on);
-      return `lock-in → ${on ? "on" : "off"}`;
+      return on ? "commit boundary rewound" : "commit boundary set — answer streaming";
     },
   });
 }

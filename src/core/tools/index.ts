@@ -33,7 +33,6 @@ import { globTool } from "./glob";
 import { grepTool } from "./grep";
 import { listDirTool } from "./list-dir.js";
 import { createMemoryTool } from "./memory.js";
-import { createSetLockinTool } from "./set-lockin.js";
 import { moveSymbolTool } from "./move-symbol.js";
 import { multiEditTool } from "./multi-edit.js";
 import { navigateTool } from "./navigate.js";
@@ -48,6 +47,7 @@ import {
   tryInterceptGrep,
   tryInterceptNavigate,
 } from "./repo-map-intercept.js";
+import { createSetLockinTool } from "./set-lockin.js";
 import { shellTool } from "./shell";
 import { showImage } from "./show-image.js";
 import { createSkillsTool } from "./skills.js";
@@ -362,9 +362,6 @@ export function buildTools(
     tabId?: string;
     tabLabel?: string;
     activeDeferredTools?: Set<string>;
-    lockInMode?: "manual" | "auto";
-    getLockIn?: () => boolean;
-    setLockIn?: (v: boolean) => void;
   },
 ) {
   const effectiveCwd = cwd ?? process.cwd();
@@ -1072,11 +1069,7 @@ export function buildTools(
 
     memory: memoryTool,
     ...(skillsTool ? { skills: skillsTool } : {}),
-    ...(opts?.lockInMode === "auto" && opts?.getLockIn && opts?.setLockIn
-      ? {
-          set_lockin: createSetLockinTool({ getLockIn: opts.getLockIn, setLockIn: opts.setLockIn }),
-        }
-      : {}),
+    set_lockin: createSetLockinTool(),
 
     editor: tool({
       ...TEXT_OUTPUT,

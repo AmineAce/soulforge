@@ -34,11 +34,6 @@ export interface PrepareStepOptions {
       lastUserMessage: string,
     ): Promise<[{ role: "user"; content: string }, { role: "assistant"; content: string }] | null>;
   };
-  /** Auto-mode lock-in nudge adapters. Reads only — model owns flips via set_lockin tool. */
-  lockInAdapters?: {
-    getMode: () => "manual" | "auto";
-    getLockIn: () => boolean;
-  };
 }
 
 // Context-proportional thresholds (fraction of model's context window).
@@ -387,7 +382,6 @@ export function buildPrepareStep({
   disablePruning,
   tabId,
   contextManager,
-  lockInAdapters,
 }: PrepareStepOptions): PrepareStepResult {
   const cw = Math.min(ctxWindow ?? DEFAULT_CONTEXT_WINDOW, MAX_SUBAGENT_CONTEXT);
   const nudgeThreshold = Math.floor(cw * OUTPUT_NUDGE_PCT);
@@ -408,12 +402,6 @@ export function buildPrepareStep({
     pair: [ModelMessage, ModelMessage];
   }> = [];
   let lastUserTurnCount = 0;
-
-  // Lock-in auto-mode nudge tracking (per turn).
-  let lockInToolCallsThisTurn = 0;
-  let lockInNudgedOnThisTurn = false;
-  let lockInNudgedOffThisTurn = false;
-  let lockInLastUserTurnCount = 0;
 
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
   const prepareStep: PrepareStepFunction<any> = async ({ stepNumber, steps, messages }) => {
@@ -581,44 +569,6 @@ export function buildPrepareStep({
     // Collect all hints as user message injects (not result.system) for cache stability.
     // System prompt stays byte-identical across steps → prefix caching works.
     const hints: string[] = [];
-
-    // Lock-in auto-mode: reset per-turn trackers when a new user turn arrives,
-    // then maybe inject ON / OFF nudges. Model owns flips — server never mutates lockIn.
-    if (lockInAdapters) {
-      const baseMsgsForLockIn = sanitizedMessages ?? messages;
-      const utc = countUserTurnsLocal(baseMsgsForLockIn);
-      if (utc > lockInLastUserTurnCount) {
-        lockInLastUserTurnCount = utc;
-        lockInToolCallsThisTurn = 0;
-        lockInNudgedOnThisTurn = false;
-        lockInNudgedOffThisTurn = false;
-      }
-      if (lastStep?.toolCalls?.length) {
-        lockInToolCallsThisTurn += lastStep.toolCalls.length;
-      }
-      const mode = lockInAdapters.getMode();
-      const locked = lockInAdapters.getLockIn();
-      if (mode === "auto") {
-        if (!locked && lockInToolCallsThisTurn >= 2 && !lockInNudgedOnThisTurn) {
-          hints.push(
-            "You've used 2+ tools without locking in. Call set_lockin({on:true}) now to hide narration from the user.",
-          );
-          lockInNudgedOnThisTurn = true;
-        }
-        const lastHadNoTools = !lastStep?.toolCalls || lastStep.toolCalls.length === 0;
-        if (
-          locked &&
-          lastHadNoTools &&
-          lastStep?.finishReason === "stop" &&
-          !lockInNudgedOffThisTurn
-        ) {
-          hints.push(
-            "You're done with tools. Call set_lockin({on:false}) before writing your final answer so the user sees it.",
-          );
-          lockInNudgedOffThisTurn = true;
-        }
-      }
-    }
 
     if (bus && agentId) {
       const unseen = bus.drainUnseenFindings(agentId);

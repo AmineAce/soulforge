@@ -307,7 +307,7 @@ describe("/timeouts command registration", () => {
 			"/chat-style", "/mode", "/nvim-config", "/verbose", "/reasoning",
 			"/compact settings", "/compaction", "/agent-features", "/instructions",
 			"/diff-style", "/editor split", "/split", "/vim-hints", "/model-scope",
-			"/font nerd", "/font set", "/settings", "/lock-in", "/theme",
+			"/font nerd", "/font set", "/settings", "/verbose-tab", "/theme",
 			"/timeouts", "/watchdog",
 		];
 		for (const cmd of expected) {

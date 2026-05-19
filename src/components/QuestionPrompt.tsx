@@ -126,8 +126,10 @@ export function QuestionPrompt({ question, isActive, onAnswer }: Props) {
         <Markdown text={question.question} />
       </box>
       {typing ? (
-        <box flexDirection="row" gap={1} backgroundColor={t.bgInput} paddingX={1}>
-          <text fg={t.brand}>{" ›"}</text>
+        <box flexDirection="row" gap={1} backgroundColor={t.bgInput} paddingX={1} width="100%">
+          <text fg={t.brand} flexShrink={0}>
+            {" ›"}
+          </text>
           <input
             value={inputValue}
             onInput={setInputValue}

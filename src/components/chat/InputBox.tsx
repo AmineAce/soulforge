@@ -35,6 +35,7 @@ interface Props {
   onCycleTab?: (direction: 1 | -1) => void;
   /** When set, the user is browsing a past checkpoint — show a rewind hint. */
   viewingCheckpoint?: number | null;
+  tabId: string;
 }
 
 let _commands: Array<{ cmd: string; icon: string; desc: string }> | null = null;
@@ -105,6 +106,7 @@ function syncImageExtmarks(ta: TextareaRenderable): void {
 }
 
 export const InputBox = memo(function InputBox({
+  tabId,
   onSubmit,
   isLoading,
   isCompacting,
@@ -240,7 +242,7 @@ export const InputBox = memo(function InputBox({
   }, [fuzzyQuery, fuzzyMode]);
 
   const floatingTermOpen = useUIStore((s) => s.modals.floatingTerminal);
-  const lockIn = useUIStore((s) => s.lockIn);
+  const tabVerbose = useUIStore((s) => s.verboseByTab[tabId] ?? false);
   const focused = floatingTermOpen ? false : (isFocused ?? true);
 
   // Subscribe to the draft-restore bus so /stash and other surfaces can push
@@ -932,8 +934,8 @@ export const InputBox = memo(function InputBox({
                     ? `${icon("rewind")} send a message to rewind to checkpoint #${String(viewingCheckpoint)}`
                     : showBusy && !showAutocomplete
                       ? "'/' for commands · or steer by sending a new message"
-                      : lockIn
-                        ? "speak to the forge... · /lock-in to see full narration"
+                      : tabVerbose
+                        ? "speak to the forge... · /verbose-tab for raw stream"
                         : tip.hint
                           ? `${tip.text} · ${tip.hint}`
                           : tip.text

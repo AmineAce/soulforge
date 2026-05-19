@@ -29,6 +29,7 @@ interface BuildAssistantMessageOptions {
   segments: MessageSegment[];
   responseStartedAt: number;
   now: number;
+  lockInCommittedAt?: number;
 }
 
 export function buildAssistantMessage({
@@ -37,6 +38,7 @@ export function buildAssistantMessage({
   segments,
   responseStartedAt,
   now,
+  lockInCommittedAt,
 }: BuildAssistantMessageOptions): ChatMessage | null {
   if (
     !hasRenderableAssistantContent({
@@ -56,5 +58,6 @@ export function buildAssistantMessage({
     toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
     segments: segments.length > 0 ? segments : undefined,
     durationMs: now - responseStartedAt,
+    ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
   };
 }

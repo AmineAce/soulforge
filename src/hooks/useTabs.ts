@@ -2,6 +2,7 @@ import type { ModelMessage } from "ai";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { rebuildCoreMessages } from "../core/sessions/rebuild.js";
 import type { TabMeta } from "../core/sessions/types.js";
+import { useUIStore } from "../stores/ui.js";
 import type { ChatMessage } from "../types/index.js";
 import type { ChatInstance, TabState } from "./useChat.js";
 
@@ -106,6 +107,7 @@ export function useTabs(): UseTabsReturn {
   const createTab = useCallback((label?: string): string | null => {
     if (tabsRef.current.length >= MAX_TABS) return null;
     const newId = crypto.randomUUID();
+    useUIStore.getState().ensureTabVerboseDefault(newId);
     setTabs((prev) => {
       const newLabel = label || `TAB-${String(prev.length + 1)}`;
       return [...prev, { id: newId, label: newLabel }];
@@ -132,6 +134,7 @@ export function useTabs(): UseTabsReturn {
       return next;
     });
     initialStates.current.delete(targetId);
+    useUIStore.getState().pruneTabVerbose(targetId);
 
     const newTabs = currentTabs.filter((t) => t.id !== targetId);
     setTabs(newTabs);
@@ -289,7 +292,10 @@ export function useTabs(): UseTabsReturn {
         : (tabMetas[0] as (typeof tabMetas)[number]).id;
 
       initialStates.current.clear();
+      const uiStore = useUIStore.getState();
       for (const tm of tabMetas) {
+        uiStore.ensureTabVerboseDefault(tm.id, tm.verbose);
+        if (tm.verbose !== undefined) uiStore.setTabVerbose(tm.id, tm.verbose);
         const msgs = tabMessages.get(tm.id) ?? [];
         const state: TabState = {
           id: tm.id,

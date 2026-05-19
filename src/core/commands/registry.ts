@@ -636,9 +636,9 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["debug", "output"],
   },
   {
-    cmd: "/lock-in",
+    cmd: "/verbose-tab",
     ic: "ghost",
-    desc: "Cycle lock-in mode — on / off / auto (model decides)",
+    desc: "Toggle verbose render for this tab — off folds tools into a rail, on shows raw stream",
     category: "Settings",
     tags: ["focus", "quiet", "narration", "shush"],
     suggested: true,

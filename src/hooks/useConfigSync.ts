@@ -75,16 +75,6 @@ export function useConfigSync({
   }, [effectiveConfig.showReasoning]);
 
   useEffect(() => {
-    if (effectiveConfig.lockIn !== undefined)
-      useUIStore.getState().setLockIn(effectiveConfig.lockIn);
-  }, [effectiveConfig.lockIn]);
-
-  useEffect(() => {
-    if (effectiveConfig.lockInMode !== undefined)
-      useUIStore.getState().setLockInMode(effectiveConfig.lockInMode);
-  }, [effectiveConfig.lockInMode]);
-
-  useEffect(() => {
     if (effectiveConfig.editorSplit !== undefined)
       useUIStore.setState({ editorSplit: effectiveConfig.editorSplit });
   }, [effectiveConfig.editorSplit]);

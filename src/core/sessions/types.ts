@@ -20,6 +20,8 @@ export interface TabMeta {
   messageRange: { startLine: number; endLine: number };
   /** Saved checkpoint git tags for session persistence */
   checkpointTags?: Array<{ index: number; anchorMessageId: string; gitTag: string }>;
+  /** Per-tab verbose render. false (default) = rail layout, true = raw stream. */
+  verbose?: boolean;
 }
 
 export interface SessionMeta {

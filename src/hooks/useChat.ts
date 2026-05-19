@@ -66,7 +66,6 @@ import { recordModelCall } from "../stores/model-events.js";
 import { useRepoMapStore } from "../stores/repomap.js";
 import { accumulateModelUsage, useStatusBarStore, ZERO_USAGE } from "../stores/statusbar.js";
 import { useToolsStore } from "../stores/tools.js";
-import { useUIStore } from "../stores/ui.js";
 import type {
   AppConfig,
   ChatMessage,
@@ -209,6 +208,8 @@ export interface ChatInstance {
   isCompacting: boolean;
   streamSegments: StreamSegment[];
   liveToolCalls: LiveToolCall[];
+  /** Live commit boundary (set_lockin({on:false})) — segment index. null = uncommitted. */
+  lockInCommittedAt: number | null;
   activePlan: Plan | null;
   setActivePlan: React.Dispatch<React.SetStateAction<Plan | null>>;
   sidebarPlan: Plan | null;
@@ -277,6 +278,7 @@ export function useChat({
   const [loadingStartedAt, setLoadingStartedAt] = useState(0);
   const [streamSegments, setStreamSegments] = useState<StreamSegment[]>([]);
   const [liveToolCalls, setLiveToolCalls] = useState<LiveToolCall[]>([]);
+  const [liveLockInCommittedAt, setLiveLockInCommittedAt] = useState<number | null>(null);
 
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -1731,6 +1733,9 @@ export function useChat({
       contextManager.updateConversationContext(input, estimatedTokens);
 
       setPendingPlanReview(null);
+      // Reset the live commit boundary at the start of every user turn so the model
+      // commits fresh per turn.
+      setLiveLockInCommittedAt(null);
       streamSegmentsBuffer.current = [];
       liveToolCallsBuffer.current = [];
       lastFlushedSegments.current = [];
@@ -1757,6 +1762,10 @@ export function useChat({
       let lastIncrementalSave = 0;
       const completedCalls: import("../types/index.js").ToolCall[] = [];
       const finalSegments: MessageSegment[] = [];
+      // Commit-boundary index: index into finalSegments where the model called
+      // set_lockin({on:false}). Everything before is "tool work" (rail);
+      // everything from this index onward is the final answer.
+      let lockInCommittedAt: number | undefined;
 
       // Track subagent token usage and aggregate into the main total
       const subagentCumulative = new Map<
@@ -2051,6 +2060,7 @@ export function useChat({
                 timestamp: Date.now(),
                 toolCalls: allCalls.length > 0 ? allCalls : undefined,
                 segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
+                ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
               };
               setMessages((prev) => [...prev, flushedAssistant, ...steeringMsgs]);
             }
@@ -2059,6 +2069,7 @@ export function useChat({
             fullText = "";
             completedCalls.length = 0;
             finalSegments.length = 0;
+            lockInCommittedAt = undefined;
 
             // Clear streaming display buffers (mutate in-place — closures hold direct refs)
             streamSegmentsBuffer.current.length = 0;
@@ -2223,9 +2234,6 @@ export function useChat({
             disabledTools: useToolsStore.getState().disabledTools,
             tabId,
             tabLabel,
-            lockInMode: useUIStore.getState().lockInMode,
-            getLockIn: () => useUIStore.getState().lockIn,
-            setLockIn: (v) => useUIStore.getState().setLockIn(v),
           });
           let result: StreamTextResult<ToolSet, never> | undefined;
           for (let degradeLevel = 0; degradeLevel <= 2; degradeLevel++) {
@@ -2271,9 +2279,6 @@ export function useChat({
                         disabledTools: useToolsStore.getState().disabledTools,
                         tabId,
                         tabLabel,
-                        lockInMode: useUIStore.getState().lockInMode,
-                        getLockIn: () => useUIStore.getState().lockIn,
-                        setLockIn: (v) => useUIStore.getState().setLockIn(v),
                       });
                     })();
               result = (await currentAgent.stream({
@@ -2785,6 +2790,18 @@ export function useChat({
                   completedCall.imageArt = streamingTc.imageArt;
                 }
                 completedCalls.push(completedCall);
+                if (
+                  part.toolName === "set_lockin" &&
+                  toolResult.success &&
+                  parsedArgs &&
+                  typeof parsedArgs === "object" &&
+                  "on" in parsedArgs &&
+                  parsedArgs.on === false &&
+                  lockInCommittedAt === undefined
+                ) {
+                  lockInCommittedAt = finalSegments.length;
+                  setLiveLockInCommittedAt(streamSegmentsBuffer.current.length);
+                }
                 if (workingStateRef.current) {
                   extractFromToolCall(workingStateRef.current, part.toolName, parsedArgs);
                   extractFromToolResult(
@@ -2946,6 +2963,7 @@ export function useChat({
                         timestamp: Date.now(),
                         toolCalls: [...completedCalls],
                         segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
+                        ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
                       };
                       setMessages((prev) => {
                         const allMsgs = [...prev, partialMsg];
@@ -3077,6 +3095,7 @@ export function useChat({
             segments: finalSegments,
             responseStartedAt,
             now: Date.now(),
+            lockInCommittedAt,
           });
 
           const errorMsgs: ChatMessage[] = streamErrors.map((errContent) => ({
@@ -3211,6 +3230,7 @@ export function useChat({
                   segments: finalSegments,
                   responseStartedAt,
                   now: Date.now(),
+                  lockInCommittedAt,
                 });
                 if (partialMsg) {
                   setMessages((prev) => [...prev, partialMsg]);
@@ -3313,6 +3333,7 @@ export function useChat({
                   segments: finalSegments,
                   responseStartedAt,
                   now: Date.now(),
+                  lockInCommittedAt,
                 });
                 if (partialMsg) {
                   setMessages((prev) => [...prev, partialMsg]);
@@ -3447,6 +3468,7 @@ export function useChat({
                 segments: finalSegments,
                 responseStartedAt,
                 now: Date.now(),
+                lockInCommittedAt,
               });
               if (!partialMsg) return;
               setMessages((prev) => [...prev, partialMsg]);
@@ -3606,6 +3628,7 @@ export function useChat({
               segments: finalSegments,
               responseStartedAt,
               now: Date.now(),
+              lockInCommittedAt,
             });
             if (!partialMsg) return;
             setMessages((prev) => [...prev, partialMsg]);
@@ -4016,6 +4039,7 @@ export function useChat({
     isCompacting,
     streamSegments,
     liveToolCalls,
+    lockInCommittedAt: liveLockInCommittedAt,
     activePlan,
     setActivePlan,
     sidebarPlan,

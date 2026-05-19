@@ -37,7 +37,7 @@ type Hint = HintSegment[];
 const HINTS: Hint[] = [
   // Modes
   ["Type ", { h: "/mode auto" }, " — full autonomy, no permission prompts"],
-  ["Type ", { h: "/lock-in" }, " — hides narration, just progress + final answer"],
+  ["Type ", { h: "/verbose-tab" }, " — toggle raw stream vs collapsed tool rail"],
   ["Type ", { h: "/mode architect" }, " — design-only analysis, no code changes"],
   ["Type ", { h: "/mode plan" }, " — research first, then a step-by-step plan"],
 
@@ -153,7 +153,7 @@ function createHintBag(): { next: () => number } {
   };
 }
 
-// Glitch transition timing (matches lock-in header animation)
+// Glitch transition timing (matches tool-rail header animation)
 const HINT_INTERVAL = 45_000; // ms between hints
 const HINT_DISPLAY = 10_000; // ms to show the hint
 const GLITCH_FRAMES = 4;

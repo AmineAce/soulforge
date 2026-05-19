@@ -16,7 +16,7 @@ function trimToCompleteLines(text: string): string {
 }
 
 /** Wrapper that applies the drip buffer to the active streaming text. */
-function DripText({ content, streaming }: { content: string; streaming: boolean }) {
+export function DripText({ content, streaming }: { content: string; streaming: boolean }) {
   const { text: display, opacity } = useTextDrip(content, streaming);
 
   if (display.length === 0) return null;
@@ -38,7 +38,6 @@ export const StreamSegmentList = memo(function StreamSegmentList({
   diffStyle = "default",
   showReasoning = true,
   reasoningExpanded = false,
-  lockIn = false,
 }: {
   segments: StreamSegment[];
   toolCalls: LiveToolCall[];
@@ -47,7 +46,6 @@ export const StreamSegmentList = memo(function StreamSegmentList({
   diffStyle?: "default" | "sidebyside" | "compact";
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
-  lockIn?: boolean;
 }) {
   // Build a stable id->call lookup. Allocating a new Map each render costs O(N)
   // but avoids the O(N²) of repeated linear lookups inside the render loop.
@@ -130,9 +128,6 @@ export const StreamSegmentList = memo(function StreamSegmentList({
 
         const needsGap = lastVisibleType !== null && lastVisibleType !== seg.type ? 1 : 0;
         if (seg.type === "text") {
-          // Lock-in mode: suppress all text during streaming.
-          // Final answer appears when the message goes static.
-          if (lockIn) return null;
           lastVisibleType = seg.type;
           const isActiveSegment = i === lastTextIndex;
           const display = trimToCompleteLines(seg.content);
@@ -164,8 +159,6 @@ export const StreamSegmentList = memo(function StreamSegmentList({
             </box>
           );
         }
-        // Lock-in mode: tools rendered by LockInWrapper, skip here
-        if (lockIn) return null;
         const calls = seg.callIds
           .map((id: string) => toolCallMap.get(id))
           .filter((tc): tc is LiveToolCall => tc != null);

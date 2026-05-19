@@ -97,8 +97,6 @@ function buildForgePrepareStep(
   /** When set, instructions are injected as the first user message instead of system prompt.
    *  Used for proxy+Claude where CLIProxyAPI cloaking replaces the system prompt. */
   proxyInstructions?: string,
-  /** Auto-mode lock-in nudge adapters. Read-only — model owns flips via set_lockin tool. */
-  lockInAdapters?: { getMode: () => "manual" | "auto"; getLockIn: () => boolean },
 ) {
   // Cache-stable inject tracking: the ToolLoopAgent discards prepareStep message
   // modifications after each step (it rebuilds from initialMessages + responseMessages).
@@ -115,11 +113,11 @@ function buildForgePrepareStep(
   }> = [];
   let lastUserTurnCount = 0;
 
-  // Lock-in auto-mode nudge tracking (per turn). Model owns flips — server never mutates lockIn.
+  // Commit-boundary nudge tracking (per turn).
   let lockInToolCallsThisTurn = 0;
-  let lockInNudgedOnThisTurn = false;
   let lockInNudgedOffThisTurn = false;
   let lockInLastUserTurnCount = 0;
+  let lockInCommittedThisTurn = false;
 
   // Proxy instructions message — injected once as the first user message so the proxy
   // cloaking doesn't strip it (it only replaces the system prompt, not user messages).
@@ -313,36 +311,44 @@ function buildForgePrepareStep(
       if (crossTab) hints.push(crossTab);
     }
 
-    // [7.6] Lock-in auto-mode nudges. Model owns flips via set_lockin tool —
-    // we only inject reminder hints, never mutate the boolean directly.
-    if (lockInAdapters) {
+    // [7.6] Commit-boundary reminder. Tool work renders as a collapsed rail;
+    // set_lockin({on:false}) marks the boundary so the final answer streams visibly.
+    // Server never inspects or mutates display state — the renderer reads the call directly.
+    {
       const utc = countUserTurns(sanitized);
       if (utc > lockInLastUserTurnCount) {
         lockInLastUserTurnCount = utc;
         lockInToolCallsThisTurn = 0;
-        lockInNudgedOnThisTurn = false;
         lockInNudgedOffThisTurn = false;
+        lockInCommittedThisTurn = false;
       }
-      const prev = prevStep as { toolCalls?: Array<unknown>; finishReason?: string } | undefined;
-      if (prev?.toolCalls?.length) {
-        lockInToolCallsThisTurn += prev.toolCalls.length;
+      const prev = prevStep as
+        | {
+            toolCalls?: Array<{ toolName?: string; input?: { on?: boolean } }>;
+            finishReason?: string;
+          }
+        | undefined;
+      const lastHadTools = !!prev?.toolCalls?.length;
+      if (lastHadTools) {
+        lockInToolCallsThisTurn += prev.toolCalls?.length ?? 0;
+        for (const tc of prev.toolCalls ?? []) {
+          if (tc.toolName === "set_lockin" && tc.input?.on === false) {
+            lockInCommittedThisTurn = true;
+          }
+        }
       }
-      const mode = lockInAdapters.getMode();
-      const locked = lockInAdapters.getLockIn();
-      if (mode === "auto") {
-        if (!locked && lockInToolCallsThisTurn >= 2 && !lockInNudgedOnThisTurn) {
-          hints.push(
-            "You've used 2+ tools without locking in. Call set_lockin({on:true}) now to hide narration from the user.",
-          );
-          lockInNudgedOnThisTurn = true;
-        }
-        const lastHadNoTools = !prev?.toolCalls || prev.toolCalls.length === 0;
-        if (locked && lastHadNoTools && prev?.finishReason === "stop" && !lockInNudgedOffThisTurn) {
-          hints.push(
-            "You're done with tools. Call set_lockin({on:false}) before writing your final answer so the user sees it.",
-          );
-          lockInNudgedOffThisTurn = true;
-        }
+
+      if (
+        !lockInCommittedThisTurn &&
+        !lastHadTools &&
+        prev?.finishReason === "stop" &&
+        lockInToolCallsThisTurn >= 1 &&
+        !lockInNudgedOffThisTurn
+      ) {
+        hints.push(
+          "About to write the final answer. Call set_lockin({on:false}) first so prior tool work collapses into the rail and your text streams visibly.",
+        );
+        lockInNudgedOffThisTurn = true;
       }
     }
 
@@ -621,9 +627,6 @@ interface ForgeAgentOptions {
   disabledTools?: Set<string>;
   tabId?: string;
   tabLabel?: string;
-  lockInMode?: "manual" | "auto";
-  getLockIn?: () => boolean;
-  setLockIn?: (v: boolean) => void;
 }
 
 /** Creates the main Forge ToolLoopAgent — model can change between turns (Ctrl+L). */
@@ -655,9 +658,6 @@ export function createForgeAgent({
   disabledTools,
   tabId,
   tabLabel,
-  lockInMode,
-  getLockIn,
-  setLockIn,
 }: ForgeAgentOptions) {
   const isRestricted = RESTRICTED_MODES.has(forgeMode);
   const repoMap = contextManager.isRepoMapReady() ? contextManager.getRepoMap() : undefined;
@@ -715,9 +715,6 @@ export function createForgeAgent({
     tabId: tabId ?? contextManager.getTabId() ?? undefined,
     tabLabel: tabLabel ?? contextManager.getTabLabel() ?? undefined,
     activeDeferredTools,
-    lockInMode,
-    getLockIn,
-    setLockIn,
   });
 
   // Reorder tools: soul tools → LSP → core. Models prefer tools earlier in the list,
@@ -961,7 +958,6 @@ export function createForgeAgent({
       canUseCodeExecution,
       parentMessagesRef,
       isProxyClaude ? buildInstructions(contextManager, modelId) : undefined,
-      lockInMode && getLockIn ? { getMode: () => lockInMode, getLockIn } : undefined,
     ),
     experimental_repairToolCall: repairToolCall,
     providerOptions: wrappedProviderOptions,

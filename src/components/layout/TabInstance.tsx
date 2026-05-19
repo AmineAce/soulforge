@@ -34,7 +34,7 @@ import type {
 } from "../../types/index.js";
 import { CheckpointRail } from "../chat/CheckpointRail.js";
 import { InputBox } from "../chat/InputBox.js";
-import { LockInLiveView } from "../chat/LockInStreamView.js";
+import { LockInLiveAutoView } from "../chat/LockInStreamView.js";
 import { CodeExpandedProvider, VerboseProvider } from "../chat/Markdown.js";
 import {
   ExpandToggleProvider,
@@ -523,7 +523,7 @@ export const TabInstance = memo(function TabInstance({
     editorSplit,
     showReasoning,
     reasoningExpandedMap,
-    lockIn,
+    tabVerbose,
   } = useUIStore(
     useShallow((s) => ({
       codeExpandedMap: s.codeExpanded,
@@ -533,7 +533,7 @@ export const TabInstance = memo(function TabInstance({
       editorSplit: s.editorSplit,
       showReasoning: s.showReasoning,
       reasoningExpandedMap: s.reasoningExpanded,
-      lockIn: s.lockIn,
+      tabVerbose: s.verboseByTab[tabId] ?? false,
     })),
   );
   const codeExpanded = !!codeExpandedMap[tabId];
@@ -783,7 +783,7 @@ export const TabInstance = memo(function TabInstance({
                               showReasoning={showReasoning}
                               reasoningExpanded={reasoningExpanded}
                               animate={false}
-                              lockIn={lockIn}
+                              tabVerbose={tabVerbose}
                               dimmed={dimmedMessageIds.has(msg.id)}
                               verbose={effectiveConfig.verbose === true}
                             />
@@ -799,18 +799,9 @@ export const TabInstance = memo(function TabInstance({
                               paddingLeft={2}
                             >
                               <box>
-                                <text fg={t.brand}>
-                                  {icon("ai")} Forge
-                                  {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
-                                </text>
+                                <text fg={t.brand}>{icon("ai")} Forge</text>
                               </box>
-                              {lockIn ? (
-                                <LockInLiveView
-                                  liveToolCalls={chat.liveToolCalls}
-                                  loadingStartedAt={loadingStartedAtRef.current}
-                                  messagesLength={chat.messages.length}
-                                />
-                              ) : (
+                              {tabVerbose ? (
                                 <StreamSegmentList
                                   segments={chat.streamSegments}
                                   toolCalls={chat.liveToolCalls}
@@ -819,7 +810,14 @@ export const TabInstance = memo(function TabInstance({
                                   diffStyle={effectiveConfig.diffStyle}
                                   showReasoning={showReasoning}
                                   reasoningExpanded={reasoningExpanded}
-                                  lockIn={lockIn}
+                                />
+                              ) : (
+                                <LockInLiveAutoView
+                                  segments={chat.streamSegments}
+                                  liveToolCalls={chat.liveToolCalls}
+                                  loadingStartedAt={loadingStartedAtRef.current}
+                                  messagesLength={chat.messages.length}
+                                  committedAt={chat.lockInCommittedAt}
                                 />
                               )}
                             </box>
@@ -829,21 +827,19 @@ export const TabInstance = memo(function TabInstance({
                     </VerboseProvider>
                   </CodeExpandedProvider>
                 </ExpandToggleProvider>
-                {lockIn ? (
-                  chat.isLoading ? (
-                    <box paddingX={1} height={1} flexShrink={0}>
-                      <text fg={t.error} attributes={TextAttributes.BOLD}>
-                        {icon("stop")} ^X to stop
-                      </text>
-                    </box>
-                  ) : null
-                ) : (
+                {tabVerbose ? (
                   <LoadingStatus
                     isLoading={chat.isLoading}
                     isCompacting={chat.isCompacting}
                     loadingStartedAt={loadingStartedAtRef.current}
                   />
-                )}
+                ) : chat.isLoading ? (
+                  <box paddingX={1} height={1} flexShrink={0}>
+                    <text fg={t.error} attributes={TextAttributes.BOLD}>
+                      {icon("stop")} ^X to stop
+                    </text>
+                  </box>
+                ) : null}
               </scrollbox>
             </AnimatedBorder>
             {checkpoints.length >= 1 && (
@@ -945,6 +941,7 @@ export const TabInstance = memo(function TabInstance({
               flexShrink={0}
             >
               <InputBox
+                tabId={tabId}
                 onSubmit={handleInputSubmit}
                 isLoading={chat.isLoading}
                 isCompacting={chat.isCompacting}

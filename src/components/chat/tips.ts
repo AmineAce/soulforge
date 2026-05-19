@@ -33,7 +33,7 @@ export const TIPS: readonly Tip[] = [
   { text: "rewind a turn with checkpoint navigation", hint: "Ctrl+B / Ctrl+F" },
   { text: "cycle modes (plan, architect, auto)", hint: "Ctrl+D" },
   { text: "stop a runaway response", hint: "Ctrl+X" },
-  { text: "lock-in mode hides narration", hint: "/lock-in" },
+  { text: "verbose render shows raw stream", hint: "/verbose-tab" },
   { text: "route cheap + strong models per task", hint: "/router" },
   { text: "pair your phone for remote approvals", hint: "/hearth" },
   { text: "expand all tool details", hint: "Ctrl+O" },

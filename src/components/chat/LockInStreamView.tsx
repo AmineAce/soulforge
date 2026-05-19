@@ -6,6 +6,7 @@ import { resolveToolDisplay, TOOL_LABELS_DONE } from "../../core/tool-display.js
 import { garble } from "../../core/utils/splash.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
 import { Spinner } from "../layout/shared.js";
+import { DripText, type StreamSegment } from "./StreamSegmentList.js";
 import { type LiveToolCall, SUBAGENT_NAMES, ToolCallDisplay } from "./ToolCallDisplay.js";
 import { formatArgs } from "./tool-formatters.js";
 
@@ -27,7 +28,7 @@ const ROTATE_INTERVAL = 8000;
 const GLITCH_FRAMES = 3;
 const GLITCH_TICK = 70;
 
-// Phase-specific spinners for lock-in status header
+// Phase-specific spinners for tool-rail status header
 const SPIN_EXPLORE = ["◴", "◷", "◶", "◵"];
 const SPIN_EDIT = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█", "▉", "▊", "▋", "▌", "▍", "▎", "▏"];
 const SPIN_DISPATCH = ["◇", "◈", "◆", "◈"];
@@ -131,10 +132,6 @@ function useRotatingMessage(pairs: [string, string][], done: boolean) {
   return text;
 }
 
-/**
- * Lock-in view — status header + rail with last-5 tools.
- * Status message rotates with glitch transition.
- */
 export const LockInWrapper = memo(function LockInWrapper({
   hasEdits,
   hasDispatch,
@@ -143,6 +140,10 @@ export const LockInWrapper = memo(function LockInWrapper({
   tools,
   children,
   loadingStartedAt = 0,
+  toolExpanded,
+  onToolClick,
+  toolDetails,
+  hideStatusHeader = false,
 }: {
   hasEdits: boolean;
   hasDispatch?: boolean;
@@ -151,6 +152,10 @@ export const LockInWrapper = memo(function LockInWrapper({
   tools: LockInTool[];
   children?: ReactNode;
   loadingStartedAt?: number;
+  toolExpanded?: Record<string, boolean>;
+  onToolClick?: (toolId: string) => void;
+  toolDetails?: (toolId: string) => ReactNode;
+  hideStatusHeader?: boolean;
 }) {
   const t = useTheme();
 
@@ -169,35 +174,39 @@ export const LockInWrapper = memo(function LockInWrapper({
   const statusColor = hasDispatch ? t.info : hasEdits ? t.warning : t.brand;
   const spinFrames = hasDispatch ? SPIN_DISPATCH : hasEdits ? SPIN_EDIT : SPIN_EXPLORE;
 
-  const hiddenCount = Math.max(0, tools.length - MAX_VISIBLE);
-  const hidden = tools.slice(0, hiddenCount);
+  const [showAllHidden, setShowAllHidden] = useState(false);
+  const interactive = !!onToolClick;
+  const naturalHiddenCount = interactive ? 0 : Math.max(0, tools.length - MAX_VISIBLE);
+  const hiddenCount = showAllHidden ? 0 : naturalHiddenCount;
+  const hidden = tools.slice(0, naturalHiddenCount);
   const hiddenEdits = hidden.filter((tc) => LOCKIN_EDIT_TOOLS.has(tc.name)).length;
-  const visible = tools.slice(-MAX_VISIBLE);
+  const visible = interactive ? tools : showAllHidden ? tools : tools.slice(-MAX_VISIBLE);
 
   return (
-    <box flexDirection="column" marginTop={1}>
-      {/* Status header */}
-      <box height={1} flexShrink={0}>
-        <text truncate>
-          {effectiveDone ? (
-            <span fg={t.success}>{"✓ "}</span>
-          ) : (
-            <Spinner inline frames={spinFrames} color={statusColor} bold suffix={" "} />
-          )}
-          <span
-            fg={effectiveDone ? t.textSecondary : t.textPrimary}
-            attributes={effectiveDone ? undefined : TextAttributes.BOLD}
-          >
-            {statusMsg}
-          </span>
-          {effectiveDone ? null : (
-            <Spinner inline frames={DOTS_PADDED} color={t.textMuted} divisor={4} />
-          )}
-          {!effectiveDone && elapsed > 0 ? (
-            <span fg={t.textFaint}>{formatElapsed(elapsed)}</span>
-          ) : null}
-        </text>
-      </box>
+    <box flexDirection="column" marginTop={hideStatusHeader ? 0 : 1}>
+      {hideStatusHeader ? null : (
+        <box height={1} flexShrink={0}>
+          <text truncate>
+            {effectiveDone ? (
+              <span fg={t.success}>{"✓ "}</span>
+            ) : (
+              <Spinner inline frames={spinFrames} color={statusColor} bold suffix={" "} />
+            )}
+            <span
+              fg={effectiveDone ? t.textSecondary : t.textPrimary}
+              attributes={effectiveDone ? undefined : TextAttributes.BOLD}
+            >
+              {statusMsg}
+            </span>
+            {effectiveDone ? null : (
+              <Spinner inline frames={DOTS_PADDED} color={t.textMuted} divisor={4} />
+            )}
+            {!effectiveDone && elapsed > 0 ? (
+              <span fg={t.textFaint}>{formatElapsed(elapsed)}</span>
+            ) : null}
+          </text>
+        </box>
+      )}
 
       {/* Tool rail */}
       {visible.length > 0 || children ? (
@@ -209,12 +218,21 @@ export const LockInWrapper = memo(function LockInWrapper({
           opacity={effectiveDone ? 0.6 : 1}
         >
           {hiddenCount > 0 ? (
-            <box height={1} flexShrink={0}>
+            // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
+            <box height={1} flexShrink={0} onMouseDown={() => setShowAllHidden(true)}>
               <text truncate>
                 <span fg={t.textDim}>
                   {icon("check")} +{String(hiddenCount)} completed
                   {hiddenEdits > 0 ? ` [${String(hiddenEdits)} edits]` : ""}
+                  <span fg={t.textFaint}> (click to expand)</span>
                 </span>
+              </text>
+            </box>
+          ) : showAllHidden && naturalHiddenCount > 0 ? (
+            // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
+            <box height={1} flexShrink={0} onMouseDown={() => setShowAllHidden(false)}>
+              <text truncate>
+                <span fg={t.textFaint}>collapse +{String(naturalHiddenCount)} above</span>
               </text>
             </box>
           ) : null}
@@ -225,22 +243,35 @@ export const LockInWrapper = memo(function LockInWrapper({
             const isLast = i === visible.length - 1 && !children;
             const connector = isLast ? "└ " : i === 0 && hiddenCount === 0 ? "┌ " : "├ ";
             const statusClr = tc.done ? (tc.error ? t.error : t.success) : t.brand;
+            const isExpanded = !!toolExpanded?.[tc.id];
+
+            const row = (
+              <text truncate>
+                <span fg={t.textFaint}>{connector}</span>
+                {tc.done ? (
+                  <span fg={statusClr}>{tc.error ? "✗" : "✓"}</span>
+                ) : (
+                  <Spinner inline color={t.brand} />
+                )}
+                <span fg={tc.done ? t.textDim : iconColor}> {toolIcon} </span>
+                <span fg={tc.done ? t.textDim : t.brand}>{displayLabel}</span>
+                {tc.argStr ? (
+                  <span fg={tc.done ? t.textDim : t.textSecondary}> {tc.argStr}</span>
+                ) : null}
+              </text>
+            );
 
             return (
-              <box key={tc.id} height={1} flexShrink={0}>
-                <text truncate>
-                  <span fg={t.textFaint}>{connector}</span>
-                  {tc.done ? (
-                    <span fg={statusClr}>{tc.error ? "✗" : "✓"}</span>
-                  ) : (
-                    <Spinner inline color={t.brand} />
-                  )}
-                  <span fg={tc.done ? t.textDim : iconColor}> {toolIcon} </span>
-                  <span fg={tc.done ? t.textDim : t.brand}>{displayLabel}</span>
-                  {tc.argStr ? (
-                    <span fg={tc.done ? t.textDim : t.textSecondary}> {tc.argStr}</span>
-                  ) : null}
-                </text>
+              <box key={tc.id} flexDirection="column" flexShrink={0}>
+                {interactive ? (
+                  // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
+                  <box height={1} onMouseDown={() => onToolClick?.(tc.id)}>
+                    {row}
+                  </box>
+                ) : (
+                  <box height={1}>{row}</box>
+                )}
+                {interactive && isExpanded && toolDetails ? toolDetails(tc.id) : null}
               </box>
             );
           })}
@@ -250,18 +281,57 @@ export const LockInWrapper = memo(function LockInWrapper({
     </box>
   );
 });
-export const LockInLiveView = memo(function LockInLiveView({
+
+/**
+ * Live auto-mode render: opening text streams visibly, all tool calls collapse
+ * into a rail, trailing text after the last tool segment streams visibly as the
+ * final answer. Interstitial text between tool clusters folds into the rail.
+ */
+export const LockInLiveAutoView = memo(function LockInLiveAutoView({
+  segments,
   liveToolCalls,
   loadingStartedAt,
   messagesLength,
+  committedAt,
 }: {
+  segments: StreamSegment[];
   liveToolCalls: LiveToolCall[];
   loadingStartedAt: number;
   messagesLength: number;
+  /** Live commit boundary from useChat. Segments[committedAt..] stream visibly as final answer. */
+  committedAt: number | null;
 }) {
-  // Stable-equal cache — only allocate a new tools array when content actually changed.
-  // Without this, LockInWrapper (memo) re-renders every 16ms flush even though the
-  // visible 5-row tool rail hasn't changed.
+  const firstToolsIdx = useMemo(() => segments.findIndex((s) => s.type === "tools"), [segments]);
+
+  // Chat-only turn (no tool segments) — stream everything as plain text.
+  const chatOnlyText = useMemo(() => {
+    if (firstToolsIdx >= 0) return null;
+    const parts: string[] = [];
+    for (const seg of segments) {
+      if (seg?.type === "text" && seg.content.length > 0) parts.push(seg.content);
+    }
+    return parts.length > 0 ? parts.join("") : null;
+  }, [segments, firstToolsIdx]);
+
+  // Opening text: a text segment BEFORE the first tool cluster.
+  const opening = useMemo(() => {
+    if (firstToolsIdx <= 0) return null;
+    const first = segments[0];
+    return first?.type === "text" ? first.content : null;
+  }, [segments, firstToolsIdx]);
+
+  // Only render trailing text when the model has explicitly committed via set_lockin({on:false}).
+  // Pre-commit text after a tool is interstitial work, not a final answer — it folds into the rail.
+  const trailingText = useMemo(() => {
+    if (committedAt === null) return null;
+    const parts: string[] = [];
+    for (let i = committedAt; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg?.type === "text" && seg.content.trim().length > 0) parts.push(seg.content);
+    }
+    return parts.length > 0 ? parts.join("\n\n") : null;
+  }, [segments, committedAt]);
+
   const toolsRef = useRef<LockInTool[]>([]);
   const tools = useMemo(() => {
     const next: LockInTool[] = [];
@@ -322,18 +392,40 @@ export const LockInLiveView = memo(function LockInLiveView({
     [liveToolCalls],
   );
 
+  if (chatOnlyText) {
+    return (
+      <box flexDirection="column">
+        <DripText content={chatOnlyText} streaming />
+      </box>
+    );
+  }
+
   return (
-    <LockInWrapper
-      hasEdits={hasEdits}
-      hasDispatch={dispatchCalls.length > 0}
-      done={false}
-      seed={messagesLength}
-      loadingStartedAt={loadingStartedAt}
-      tools={tools}
-    >
-      {dispatchCalls.length > 0 ? (
-        <ToolCallDisplay calls={dispatchCalls} diffStyle="compact" />
+    <box flexDirection="column">
+      {opening ? (
+        <box flexDirection="column">
+          <DripText content={opening} streaming />
+        </box>
       ) : null}
-    </LockInWrapper>
+      {tools.length > 0 || dispatchCalls.length > 0 ? (
+        <LockInWrapper
+          hasEdits={hasEdits}
+          hasDispatch={dispatchCalls.length > 0}
+          done={false}
+          seed={messagesLength}
+          loadingStartedAt={loadingStartedAt}
+          tools={tools}
+        >
+          {dispatchCalls.length > 0 ? (
+            <ToolCallDisplay calls={dispatchCalls} diffStyle="compact" />
+          ) : null}
+        </LockInWrapper>
+      ) : null}
+      {trailingText ? (
+        <box flexDirection="column" marginTop={1}>
+          <DripText content={trailingText} streaming />
+        </box>
+      ) : null}
+    </box>
   );
 });

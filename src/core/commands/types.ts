@@ -40,15 +40,14 @@ export interface CommandContext {
   effectiveNvimConfig: NvimConfigMode | undefined;
   vimHints: boolean;
   verbose: boolean;
+  /** Per-tab verbose render flag. false = rail layout, true = raw stream. */
+  tabVerbose: boolean;
+  setTabVerbose: (v: boolean) => void;
   diffStyle: "default" | "sidebyside" | "compact";
   collapseDiffs: boolean;
   compactionStrategy: CompactionStrategy;
   showReasoning: boolean;
   setShowReasoning: (v: boolean) => void;
-  lockIn: boolean;
-  setLockIn: (v: boolean) => void;
-  lockInMode: "manual" | "auto";
-  setLockInMode: (m: "manual" | "auto") => void;
   watchdog: boolean;
   openSetup: () => void;
   openEditorSettings: () => void;

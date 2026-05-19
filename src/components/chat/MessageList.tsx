@@ -16,6 +16,7 @@ import { renderImageFromData } from "../../core/terminal/image.js";
 import { getThemeTokens, type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { resolveToolDisplay, TOOL_ICONS, TOOL_LABELS } from "../../core/tool-display.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
+import { useUIStore } from "../../stores/ui.js";
 import type {
   ChatMessage,
   ChatStyle,
@@ -65,7 +66,7 @@ interface Props {
   collapseDiffs?: boolean;
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
-  lockIn?: boolean;
+  tabVerbose?: boolean;
   verbose?: boolean;
 }
 
@@ -766,7 +767,7 @@ function renderSegments(
   showReasoning = true,
   reasoningExpanded = false,
   t: ThemeTokens = getThemeTokens(),
-  lockIn = false,
+  hideTextAfterTools = false,
   verbose = false,
 ) {
   // Merge consecutive tool segments (skip empty text between) so they share one tree
@@ -799,9 +800,9 @@ function renderSegments(
       const isLastSegment = i === merged.length - 1;
       const hasToolsBefore = firstToolsIdx >= 0 && firstToolsIdx < i;
       const isFinalAnswer = isLastSegment && hasToolsBefore && seg.content.trim().length > 20;
-      // Lock-in mode: hide ALL text (tools-only view). Final answer rendered separately by caller.
-      // Don't suppress text-only messages (no tools = normal conversation)
-      if (lockIn && firstToolsIdx >= 0) return null;
+      // Suppress text after the first tools segment when the caller handles final-answer
+      // rendering separately (e.g. auto-mode rail layout).
+      if (hideTextAfterTools && firstToolsIdx >= 0) return null;
       lastVisibleType = seg.type;
       return (
         // biome-ignore lint/suspicious/noArrayIndexKey: stable segment order
@@ -1171,7 +1172,7 @@ const AssistantMessage = memo(function AssistantMessage({
   collapseDiffs = false,
   showReasoning = true,
   reasoningExpanded = false,
-  lockIn = false,
+  tabVerbose = false,
   verbose = false,
 }: {
   msg: ChatMessage;
@@ -1179,7 +1180,7 @@ const AssistantMessage = memo(function AssistantMessage({
   collapseDiffs?: boolean;
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
-  lockIn?: boolean;
+  tabVerbose?: boolean;
   verbose?: boolean;
 }) {
   const t = useTheme();
@@ -1198,34 +1199,6 @@ const AssistantMessage = memo(function AssistantMessage({
   const hasTools = msg.toolCalls && msg.toolCalls.length > 0;
   const isEmpty = !hasSegments && !hasContent && !hasTools;
 
-  // Lock-in: extract final answer (last text after tools, >20 chars) for separate rendering
-  const lockInFinalAnswer = useMemo(() => {
-    if (!lockIn || !msg.segments) return null;
-    const segs = msg.segments;
-    let toolsIdx = -1;
-    for (let i = segs.length - 1; i >= 0; i--) {
-      if (segs[i]?.type === "tools") {
-        toolsIdx = i;
-        break;
-      }
-    }
-    if (toolsIdx < 0) return null;
-    // Walk backwards past trailing reasoning segments — some providers
-    // (DeepSeek reasoner, etc.) emit a final reasoning block after the last
-    // text. The "final answer" is the last text segment that follows tools.
-    for (let i = segs.length - 1; i > toolsIdx; i--) {
-      const seg = segs[i];
-      if (seg?.type === "text" && seg.content.trim().length > 20) return seg.content;
-    }
-    return null;
-  }, [lockIn, msg.segments]);
-
-  const lockInHasEdits = useMemo(
-    () =>
-      lockIn && hasTools ? msg.toolCalls?.some((tc) => LOCKIN_EDIT_TOOLS.has(tc.name)) : false,
-    [lockIn, hasTools, msg.toolCalls],
-  );
-
   // Stable seed from message id for deterministic silly-message selection
   const lockInSeed = useMemo(() => {
     let h = 0;
@@ -1233,10 +1206,75 @@ const AssistantMessage = memo(function AssistantMessage({
     return h;
   }, [msg.id]);
 
-  const lockInTools = useMemo(() => {
-    if (!lockIn || !hasTools) return [];
+  const toolExpandedMap = useUIStore((s) => s.messageToolExpanded[msg.id]);
+  const toggleTool = useUIStore((s) => s.toggleMessageTool);
+
+  const autoLayout = useMemo(() => {
+    if (tabVerbose || !msg.segments || msg.segments.length === 0) return null;
+    const segs = msg.segments;
+    const firstToolsIdx = segs.findIndex((s) => s.type === "tools");
+    if (firstToolsIdx < 0) return null; // chat-only turn — render as normal
+
+    // Find the boundary between rail and final text.
+    // 1. Explicit: model called set_lockin({on:false}) → lockInCommittedAt is the index AFTER which is final.
+    // 2. Heuristic: last segment is text and there's at least one tools segment before it.
+    let boundary: number;
+    if (typeof msg.lockInCommittedAt === "number") {
+      boundary = msg.lockInCommittedAt;
+    } else {
+      const last = segs.length - 1;
+      const lastIsText = segs[last]?.type === "text";
+      const hasToolsBeforeLast = segs.slice(0, last).some((s) => s.type === "tools");
+      boundary = lastIsText && hasToolsBeforeLast ? last : segs.length;
+    }
+
+    // Opening text: first segment if it's text AND it precedes the first tools segment.
+    const first = segs[0];
+    const opening: { type: "text"; content: string } | null =
+      firstToolsIdx > 0 && first?.type === "text" ? first : null;
+    const openingEnd = opening ? 1 : 0;
+
+    const railSegs = segs.slice(openingEnd, boundary);
+    const finalSegs = segs.slice(boundary);
+
+    // Per-tool narration map: for each tool id, attach the text segment immediately
+    // before its tools cluster (if not already opening).
+    const narrationByTool = new Map<string, { before?: string; after?: string }>();
+    for (let i = openingEnd; i < boundary; i++) {
+      const seg = segs[i];
+      if (seg?.type !== "tools") continue;
+      const prev = i > 0 ? segs[i - 1] : null;
+      const next = i + 1 < boundary ? segs[i + 1] : null;
+      const beforeText =
+        prev?.type === "text" && i - 1 >= openingEnd ? prev.content.trim() : undefined;
+      const afterText = next?.type === "text" ? next.content.trim() : undefined;
+      const firstTool = seg.toolCallIds[0];
+      const lastTool = seg.toolCallIds[seg.toolCallIds.length - 1];
+      if (firstTool && beforeText) {
+        narrationByTool.set(firstTool, {
+          ...narrationByTool.get(firstTool),
+          before: beforeText,
+        });
+      }
+      if (lastTool && afterText) {
+        narrationByTool.set(lastTool, {
+          ...narrationByTool.get(lastTool),
+          after: afterText,
+        });
+      }
+    }
+
+    return { opening, railSegs, finalSegs, narrationByTool };
+  }, [tabVerbose, msg.segments, msg.lockInCommittedAt]);
+
+  const autoRailTools = useMemo(() => {
+    if (!autoLayout) return [];
+    const ids = new Set<string>();
+    for (const seg of autoLayout.railSegs) {
+      if (seg.type === "tools") for (const id of seg.toolCallIds) ids.add(id);
+    }
     return (msg.toolCalls ?? [])
-      .filter((tc) => filterQuietTools(tc.name) && !SUBAGENT_NAMES.has(tc.name))
+      .filter((tc) => ids.has(tc.id) && filterQuietTools(tc.name) && !SUBAGENT_NAMES.has(tc.name))
       .map((tc) => ({
         id: tc.id,
         name: tc.name,
@@ -1244,12 +1282,26 @@ const AssistantMessage = memo(function AssistantMessage({
         error: !!tc.result && !tc.result.success,
         argStr: formatArgs(tc.name, JSON.stringify(tc.args)),
       }));
-  }, [lockIn, hasTools, msg.toolCalls]);
+  }, [autoLayout, msg.toolCalls]);
 
-  const lockInDispatchCalls = useMemo(() => {
-    if (!lockIn || !hasTools) return [];
-    return (msg.toolCalls ?? []).filter((tc) => SUBAGENT_NAMES.has(tc.name));
-  }, [lockIn, hasTools, msg.toolCalls]);
+  const autoRailHasEdits = useMemo(() => {
+    if (!autoLayout) return false;
+    return !!(msg.toolCalls ?? []).some((tc) => {
+      const inRail = autoLayout.railSegs.some(
+        (s) => s.type === "tools" && s.toolCallIds.includes(tc.id),
+      );
+      return inRail && LOCKIN_EDIT_TOOLS.has(tc.name);
+    });
+  }, [autoLayout, msg.toolCalls]);
+
+  const autoRailDispatchCalls = useMemo(() => {
+    if (!autoLayout) return [];
+    return (msg.toolCalls ?? []).filter(
+      (tc) =>
+        SUBAGENT_NAMES.has(tc.name) &&
+        autoLayout.railSegs.some((s) => s.type === "tools" && s.toolCallIds.includes(tc.id)),
+    );
+  }, [autoLayout, msg.toolCalls]);
 
   return (
     <box
@@ -1262,10 +1314,7 @@ const AssistantMessage = memo(function AssistantMessage({
       paddingY={1}
     >
       <box flexDirection="row">
-        <text fg={t.accentAssistant}>
-          {icon("ai")} Forge
-          {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
-        </text>
+        <text fg={t.accentAssistant}>{icon("ai")} Forge</text>
         <text fg={t.textDim}> {time}</text>
       </box>
 
@@ -1273,29 +1322,68 @@ const AssistantMessage = memo(function AssistantMessage({
         <text fg={t.textMuted} attributes={TextAttributes.ITALIC}>
           Empty response — model returned no content.
         </text>
-      ) : lockIn && hasTools ? (
+      ) : autoLayout ? (
         <>
-          <LockInWrapper
-            hasEdits={!!lockInHasEdits}
-            hasDispatch={lockInDispatchCalls.length > 0}
-            done
-            seed={lockInSeed}
-            tools={lockInTools}
-          >
-            {lockInDispatchCalls.length > 0
-              ? lockInDispatchCalls.map((tc) => (
-                  <ToolCallRow key={tc.id} tc={tc} diffStyle="compact" collapseDiffs />
-                ))
-              : null}
-          </LockInWrapper>
-          {lockInFinalAnswer ? (
+          {autoLayout.opening ? (
+            <box flexDirection="column">
+              <Markdown text={autoLayout.opening.content} />
+            </box>
+          ) : null}
+          {autoRailTools.length > 0 ? (
+            <box flexDirection="column" marginTop={autoLayout.opening ? 1 : 0}>
+              <LockInWrapper
+                hasEdits={autoRailHasEdits}
+                hasDispatch={autoRailDispatchCalls.length > 0}
+                done
+                seed={lockInSeed}
+                tools={autoRailTools}
+                hideStatusHeader
+                toolExpanded={toolExpandedMap}
+                onToolClick={(toolId: string) => toggleTool(msg.id, toolId)}
+                toolDetails={(toolId: string) => {
+                  const tc = toolCallMap.get(toolId);
+                  if (!tc) return null;
+                  const narration = autoLayout.narrationByTool.get(toolId);
+                  return (
+                    <box flexDirection="column" paddingLeft={2}>
+                      {narration?.before ? (
+                        <text fg={t.textFaint}>
+                          <span>before: </span>
+                          <span fg={t.textDim}>{narration.before}</span>
+                        </text>
+                      ) : null}
+                      <ToolCallRow tc={tc} diffStyle={diffStyle} collapseDiffs={collapseDiffs} />
+                      {narration?.after ? (
+                        <text fg={t.textFaint}>
+                          <span>after: </span>
+                          <span fg={t.textDim}>{narration.after}</span>
+                        </text>
+                      ) : null}
+                    </box>
+                  );
+                }}
+              >
+                {autoRailDispatchCalls.length > 0
+                  ? autoRailDispatchCalls.map((tc) => (
+                      <ToolCallRow key={tc.id} tc={tc} diffStyle="compact" collapseDiffs />
+                    ))
+                  : null}
+              </LockInWrapper>
+            </box>
+          ) : null}
+          {autoLayout.finalSegs.length > 0 ? (
             <box flexDirection="column" marginTop={1}>
-              <box height={1} flexShrink={0} marginBottom={1}>
-                <text fg={t.textFaint} truncate>
-                  {"─".repeat(60)}
-                </text>
-              </box>
-              <Markdown text={lockInFinalAnswer} />
+              {renderSegments(
+                autoLayout.finalSegs,
+                toolCallMap,
+                diffStyle,
+                collapseDiffs,
+                showReasoning,
+                reasoningExpanded,
+                t,
+                false,
+                verbose,
+              )}
             </box>
           ) : null}
         </>
@@ -1308,7 +1396,7 @@ const AssistantMessage = memo(function AssistantMessage({
           showReasoning,
           reasoningExpanded,
           t,
-          lockIn,
+          false,
           verbose,
         )
       ) : (
@@ -1358,7 +1446,7 @@ function staticMessagePropsEqual(prev: StaticMessageProps, next: StaticMessagePr
   if (prev.showReasoning !== next.showReasoning) return false;
   if (prev.reasoningExpanded !== next.reasoningExpanded) return false;
   if (prev.animate !== next.animate) return false;
-  if (prev.lockIn !== next.lockIn) return false;
+  if (prev.tabVerbose !== next.tabVerbose) return false;
   if (prev.dimmed !== next.dimmed) return false;
   if (prev.verbose !== next.verbose) return false;
   // Defensive: same ref but tool list mutated
@@ -1376,7 +1464,7 @@ interface StaticMessageProps {
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
   animate?: boolean;
-  lockIn?: boolean;
+  tabVerbose?: boolean;
   dimmed?: boolean;
   verbose?: boolean;
 }
@@ -1389,7 +1477,7 @@ export const StaticMessage = memo(function StaticMessage({
   showReasoning = true,
   reasoningExpanded = false,
   animate = false,
-  lockIn = false,
+  tabVerbose = false,
   dimmed = false,
   verbose = false,
 }: StaticMessageProps) {
@@ -1415,7 +1503,7 @@ export const StaticMessage = memo(function StaticMessage({
         collapseDiffs={collapseDiffs}
         showReasoning={showReasoning}
         reasoningExpanded={reasoningExpanded}
-        lockIn={lockIn}
+        tabVerbose={tabVerbose}
         verbose={verbose}
       />
     </box>
@@ -1428,7 +1516,7 @@ export const MessageList = memo(function MessageList({
   diffStyle = "default",
   collapseDiffs = false,
   showReasoning = true,
-  lockIn = false,
+  tabVerbose = false,
   verbose = false,
 }: Props) {
   const t = useTheme();
@@ -1473,7 +1561,7 @@ export const MessageList = memo(function MessageList({
             diffStyle={diffStyle}
             collapseDiffs={collapseDiffs}
             showReasoning={showReasoning}
-            lockIn={lockIn}
+            tabVerbose={tabVerbose}
             verbose={verbose}
           />
         );
