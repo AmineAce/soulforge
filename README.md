@@ -1,6 +1,40 @@
 <div align="center">
 
+<a href="https://github.com/sponsors/proxysoul"><img src="https://img.shields.io/badge/%F0%9F%94%A5_Sponsor-GitHub-EA4AAA.svg?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub" /></a>
 <a href="https://paypal.me/waeru"><img src="https://img.shields.io/badge/%E2%9A%94%EF%B8%8F_Fuel_the_Forge-PayPal-9B30FF.svg?style=for-the-badge&logo=paypal&logoColor=white" alt="Fuel the Forge" /></a>
+
+<br/>
+
+<sub><b>Backed by</b></sub>
+<br/>
+<br/>
+
+<!--
+  Sponsor wall — logos sized by tier.
+  Heart of the forge ($1000/mo)        → height="80"   top row, solo
+  Anvil ($500/mo)                       → height="60"   premium row
+  Forge ($100/mo) + Permanent ($200+)   → height="48"   supporters row
+  Add new sponsors to the matching tier row below. Source of truth: BACKERS.md.
+-->
+
+<!-- Permanent backers ($200+ one-time) & Forge tier ($100/mo) -->
+<a href="https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK" title="LLM Gateway — Permanent backer">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://llmgateway.io/brand/logo-with-name-white.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://llmgateway.io/brand/logo-with-name-black.svg" />
+    <img alt="LLM Gateway" src="https://llmgateway.io/brand/logo-with-name-black.svg" height="48" />
+  </picture>
+</a>
+
+<br/>
+<sub><i>One API, 200+ models, up to 30% off frontier — already wired into SoulForge as the <code>llmgateway</code> provider.</i></sub>
+
+<br/><br/>
+
+<a href="https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK"><img src="https://img.shields.io/badge/Get_a_LLM_Gateway_key-%E2%86%92-7C3AED.svg?style=for-the-badge&labelColor=0a0818" alt="Get a LLM Gateway key" /></a>
+
+<br/>
+<sub><a href="BACKERS.md">See all backers</a> · <a href="https://github.com/sponsors/proxysoul">Become a sponsor</a></sub>
 
 <br/>
 
