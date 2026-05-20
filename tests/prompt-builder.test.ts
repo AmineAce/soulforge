@@ -226,7 +226,7 @@ describe("soul map messages", () => {
 
   test("buildSoulMapAck returns acknowledgment", () => {
     const ack = buildSoulMapAck();
-    expect(ack).toContain("Soul Map loaded");
+    expect(ack).toContain("Soul Map indexed");
   });
 
   test("buildSoulMapUserMessage includes description and usage", () => {

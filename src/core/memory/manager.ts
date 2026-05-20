@@ -12,10 +12,10 @@ import { memoryEmbedSource as memoryEmbedSourceImport } from "./embedder.js";
 import type {
   MemoryCategory,
   MemoryFileRef,
+  MemoryIndex,
   MemoryRecord,
   MemoryScope,
   MemoryScopeConfig,
-  MemoryIndex,
 } from "./types.js";
 
 export interface CleanupTracker {

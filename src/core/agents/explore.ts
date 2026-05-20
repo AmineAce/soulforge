@@ -42,6 +42,10 @@ TOOLS:
 - soul_analyze — file_profile, unused_exports, symbols_by_kind, call_graph. For architecture.
 - navigate — definitions, references, call hierarchies across files.
 - read — file content with ranges. Batch multiple files in ONE call.
+- web_search — official docs, specs, RFCs, GitHub READMEs when codebase lacks the answer.
+- fetch_page — known URL (user-shared, or from web_search results). Extracts readable text.
+
+External research is in scope. If the parent's task names a vendor doc, URL, library, or any concept the codebase doesn't define, use web_search/fetch_page. Don't refuse research tasks because the answer isn't in the repo.
 
 WORKFLOW:
 - Paths given → batch read with ranges in ONE call.

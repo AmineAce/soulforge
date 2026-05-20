@@ -157,7 +157,7 @@ function parseModelId(modelId: string): { provider: string; model: string } {
   return { provider: modelId.slice(0, slash), model: modelId.slice(slash + 1) };
 }
 
-function extractBaseModel(modelId: string): string {
+export function extractBaseModel(modelId: string): string {
   const slash = modelId.lastIndexOf("/");
   return (slash >= 0 ? modelId.slice(slash + 1) : modelId).toLowerCase();
 }
@@ -191,20 +191,31 @@ function getClaudeGen(model: string): ClaudeGen {
 // For gateways (llmgateway/, openrouter/, vercel_gateway/), we inspect the model name
 // to determine the underlying provider family.
 
-export type ModelFamily = "claude" | "openai" | "google" | "xai" | "deepseek" | "other";
+export type ModelFamily =
+  | "claude"
+  | "openai"
+  | "google"
+  | "xai"
+  | "deepseek"
+  | "deepseek-reasoner"
+  | "other";
 
 export function detectModelFamily(modelId: string): ModelFamily {
   const { provider } = parseModelId(modelId);
+  const base = extractBaseModel(modelId);
+
+  // Kimi K2.5 ships an Anthropic-compatible endpoint and was tuned against
+  // Claude-shaped prompts — route to claude family.
+  if (provider === "moonshot" || base.startsWith("kimi")) return "claude";
 
   // Direct providers — no guessing needed
   if (provider === "anthropic") return "claude";
   if (provider === "openai") return "openai";
   if (provider === "xai") return "xai";
   if (provider === "google") return "google";
-  if (provider === "deepseek") return "deepseek";
+  if (provider === "deepseek") return isDeepSeekReasoner(base) ? "deepseek-reasoner" : "deepseek";
 
   // Proxy / gateways — inspect model name
-  const base = extractBaseModel(modelId);
   if (base.startsWith("claude") || base.startsWith("anthropic.claude")) return "claude";
   if (
     base.startsWith("gpt-") ||
@@ -215,7 +226,8 @@ export function detectModelFamily(modelId: string): ModelFamily {
     return "openai";
   if (base.startsWith("gemini")) return "google";
   if (base.startsWith("grok")) return "xai";
-  if (base.startsWith("deepseek")) return "deepseek";
+  if (base.startsWith("deepseek"))
+    return isDeepSeekReasoner(base) ? "deepseek-reasoner" : "deepseek";
 
   // OpenRouter nested paths like "anthropic/claude-*", "x-ai/grok-*", "deepseek/deepseek-*"
   const model = parseModelId(modelId).model;
@@ -223,7 +235,11 @@ export function detectModelFamily(modelId: string): ModelFamily {
   if (model.startsWith("openai/")) return "openai";
   if (model.startsWith("google/")) return "google";
   if (model.startsWith("x-ai/") || model.startsWith("xai/")) return "xai";
-  if (model.startsWith("deepseek/")) return "deepseek";
+  if (model.startsWith("deepseek/")) {
+    const sub = model.slice("deepseek/".length);
+    return isDeepSeekReasoner(sub) ? "deepseek-reasoner" : "deepseek";
+  }
+  if (model.startsWith("moonshotai/") || model.startsWith("moonshot/")) return "claude";
 
   return "other";
 }
@@ -1103,4 +1119,8 @@ function buildGroqOptions(config: AppConfig): { opts: Record<string, unknown> } 
     opts.reasoningFormat = fmt;
   }
   return { opts };
+}
+function isDeepSeekReasoner(base: string): boolean {
+  // deepseek-reasoner = R1 path. V3.1 with explicit 'think' suffix also lacks function calling.
+  return base === "deepseek-reasoner" || base.includes("reasoner") || base.endsWith("-think");
 }

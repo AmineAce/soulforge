@@ -39,8 +39,8 @@ describe("shared-identity content", () => {
     expect(SHARED_IDENTITY).toContain("<tool_loop>");
     expect(SHARED_IDENTITY).toContain("<answer_voice>");
     // <forbidden_between_tool_calls> bullet list folded inline into <tool_loop>
-    expect(SHARED_IDENTITY).toContain("no acknowledgements");
-    expect(SHARED_IDENTITY).toContain("no self-narration");
+    expect(SHARED_IDENTITY).toContain("Acknowledgements");
+    expect(SHARED_IDENTITY).toContain("self-narration");
   });
 
   test("collapsed four overlapping sections into two", () => {
@@ -53,12 +53,12 @@ describe("shared-identity content", () => {
 
   test("exposes CORE_RULES single-source micro-prompt", () => {
     expect(CORE_RULES).toContain("Silent tool loop");
-    expect(CORE_RULES).toContain("Speak only at the end");
+    expect(CORE_RULES).toContain("Speak once, at the end");
   });
 
-  test("warns that interstitial text is invisible to the user", () => {
-    expect(CORE_RULES).toContain("Interstitial text is INVISIBLE");
-    expect(SHARED_IDENTITY).toContain("Interstitial text is INVISIBLE");
+  test("warns that interstitial text does not render to the user", () => {
+    expect(CORE_RULES).toContain("Interstitial text does not render");
+    expect(SHARED_IDENTITY).toContain("Interstitial text does not render");
   });
 });
 
@@ -69,8 +69,10 @@ describe("family prompts carry only tonal delta", () => {
     expect(CLAUDE_PROMPT).not.toContain("soul_find");
   });
 
-  test("openai has agentic framing, no duplicated workflow", () => {
-    expect(OPENAI_PROMPT).toContain("<agentic_framing>");
+  test("openai has GPT-5 canonical blocks, no duplicated workflow", () => {
+    expect(OPENAI_PROMPT).toContain("<persistence>");
+    expect(OPENAI_PROMPT).toContain("<context_gathering>");
+    expect(OPENAI_PROMPT).toContain("<tool_preambles>");
     expect(OPENAI_PROMPT).toContain("Keep going until");
     expect(OPENAI_PROMPT).not.toContain("<workflow>");
     expect(OPENAI_PROMPT).not.toContain("soul_find");

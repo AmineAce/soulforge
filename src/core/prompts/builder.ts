@@ -15,8 +15,14 @@
  */
 
 import type { ForgeMode } from "../../types/index.js";
-import { detectModelFamily } from "../llm/provider-options.js";
-import { CLAUDE_PROMPT, DEFAULT_PROMPT, GOOGLE_PROMPT, OPENAI_PROMPT } from "./families/index.js";
+import { detectModelFamily, extractBaseModel } from "../llm/provider-options.js";
+import {
+  CLAUDE_PROMPT,
+  DEEPSEEK_REASONER_PROMPT,
+  DEFAULT_PROMPT,
+  GOOGLE_PROMPT,
+  OPENAI_PROMPT,
+} from "./families/index.js";
 import { getModeInstructions } from "./modes/index.js";
 import { TOOL_GUIDANCE_NO_MAP, TOOL_GUIDANCE_WITH_MAP } from "./shared/index.js";
 
@@ -26,9 +32,12 @@ const FAMILY_PROMPTS: Record<string, string> = {
   claude: CLAUDE_PROMPT,
   openai: OPENAI_PROMPT,
   google: GOOGLE_PROMPT,
-  // xAI and DeepSeek use OpenAI-style prompts — their models respond best to that shape.
+  // xAI uses OpenAI-style prompts — Grok responds best to that shape.
   xai: OPENAI_PROMPT,
+  // DeepSeek V3 / V3.1-non-think → OpenAI-shape (function calling supported).
   deepseek: OPENAI_PROMPT,
+  // deepseek-reasoner (R1 / V3.1-think) → minimal prompt, no tool guidance.
+  "deepseek-reasoner": DEEPSEEK_REASONER_PROMPT,
   other: DEFAULT_PROMPT,
 };
 
@@ -72,17 +81,30 @@ export function buildSystemPrompt(opts: PromptBuilderOptions): string {
   // 1. Family-specific base prompt
   parts.push(getFamilyPrompt(family));
 
-  // 2. Tool guidance
-  if (opts.hasRepoMap) {
-    parts.push(TOOL_GUIDANCE_WITH_MAP);
+  // 2. Tool guidance — skip entirely for deepseek-reasoner (no function calling).
+  const skipToolGuidance = family === "deepseek-reasoner";
+  if (!skipToolGuidance) {
+    if (opts.hasRepoMap) {
+      parts.push(TOOL_GUIDANCE_WITH_MAP);
 
-    if (!opts.hasSymbols) {
+      if (!opts.hasSymbols) {
+        parts.push(
+          "Code intelligence limited: No symbols indexed. Intelligence tools fall back to regex.",
+        );
+      }
+    } else {
+      parts.push(TOOL_GUIDANCE_NO_MAP);
+    }
+  }
+
+  // 2b. Gemini Flash temporal context (per Google's published Flash strategies).
+  if (family === "google") {
+    const base = extractBaseModel(opts.modelId);
+    if (base.includes("flash")) {
       parts.push(
-        "Code intelligence limited: No symbols indexed. Intelligence tools fall back to regex.",
+        "For time-sensitive queries that require up-to-date information, you MUST use the current date provided in tool calls. Your knowledge cutoff is January 2025; assume the current year is 2026 unless tool results state otherwise.",
       );
     }
-  } else {
-    parts.push(TOOL_GUIDANCE_NO_MAP);
   }
 
   // 3. Working directory and environment (stable — never changes during a session)

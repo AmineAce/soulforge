@@ -7,7 +7,7 @@ import { SHARED_IDENTITY, SHARED_RULES } from "./shared-rules.js";
 export const CLAUDE_PROMPT = `${SHARED_IDENTITY}
 
 <tone>
-Your training already tunes you for terse, agentic code work. Stay there. Do what was asked, nothing more. Local reversible actions (edit, test) don't need confirmation; hard-to-reverse ones (force push, reset --hard, branch delete) do.
+You already excel at terse agentic work — trust your defaults. Parallelize independent tool calls. Reversible actions need no confirmation; destructive ones (force push, reset --hard, rm -rf, branch delete) do.
 </tone>
 
 ${SHARED_RULES}`;

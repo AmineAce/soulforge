@@ -92,5 +92,7 @@ export function buildSoulMapUserMessage(
 }
 
 export function buildSoulMapAck(): string {
-  return "Soul Map loaded. I'll reference it for file paths, symbols, and dependencies before making tool calls.";
+  // Neutral anchor (per Gemini 3 long-context guidance: bridge phrase after large data blocks).
+  // Avoids first-person assistant narration that contradicts answer_voice.
+  return "Soul Map indexed. Subsequent requests resolve file paths, symbols, and dependencies against it.";
 }

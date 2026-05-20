@@ -85,7 +85,7 @@ export function removePresets(
   const drop = new Set(specs);
   const filtered = current.filter((s) => !drop.has(s));
   if (filtered.length === 0) {
-    delete existing.presets;
+    existing.presets = undefined;
   } else {
     existing.presets = filtered;
   }

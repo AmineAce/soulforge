@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG, setPresetOverlay } from "../../config/index.js";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AppConfig } from "../../types/index.js";
-import { resolvePresets, type ResolvePresetsResult } from "./loader.js";
+import { type ResolvePresetsResult, resolvePresets } from "./loader.js";
 import { mergePresetsIntoConfig } from "./merge.js";
 
 function getGlobalConfigFile(): string {

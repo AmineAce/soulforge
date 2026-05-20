@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { coerceBoolean } from "./index.js";
 
 export function createSetLockinTool() {
   return tool({
@@ -12,7 +13,7 @@ export function createSetLockinTool() {
       "Skip entirely for pure-chat turns with no tool work.",
     inputSchema: z.object({
       on: z
-        .boolean()
+        .preprocess(coerceBoolean, z.boolean())
         .describe(
           "false = mark the commit boundary so final text streams visibly. true = rewind the boundary (rare).",
         ),

@@ -7,6 +7,7 @@
  * 3. Add the detection case in ../../llm/provider-options.ts detectModelFamily()
  */
 export { CLAUDE_PROMPT } from "./claude.js";
+export { DEEPSEEK_REASONER_PROMPT } from "./deepseek-reasoner.js";
 export { DEFAULT_PROMPT } from "./default.js";
 export { GOOGLE_PROMPT } from "./google.js";
 export { OPENAI_PROMPT } from "./openai.js";

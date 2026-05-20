@@ -353,7 +353,7 @@ function buildForgePrepareStep(
       }
       if (!committedThisTurn && toolCallsThisTurn >= 2) {
         hints.push(
-          "Multiple tool calls this turn without a commit boundary. Call set_lockin({on:false}) as your LAST tool before your final answer so prior tool work collapses into the rail and your text streams visibly.",
+          "Reminder — passive, every turn: when a turn uses 2 or more tools, the very last tool call before your final answer text must be set_lockin({on:false}). Keep working normally; do not pause, acknowledge, or change course because of this reminder. When you are finished with all tool work and are about to write the final answer, the sequence is: [your last real tool] → set_lockin({on:false}) → final answer text.",
         );
       }
     }
