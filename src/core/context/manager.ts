@@ -1619,6 +1619,29 @@ export class ContextManager {
   hasSoulMapDiff(): boolean {
     return this.soulMapDiffChangedFiles.size > 0 && this.isRepoMapReady();
   }
+
+  private lastTurnAt = 0;
+
+  /**
+   * Anthropic ephemeral cache lives 5 minutes. After that idle window the
+   * cached prefix is dead — accumulated soul-map diff blocks become pure
+   * token cost with zero cache benefit. Reseed the snapshot from current
+   * state and clear diff accumulation so the next API call writes a fresh,
+   * clean cache. Returns true when a reseed fired.
+   *
+   * Call at user-turn boundary, BEFORE building the agent. Never call
+   * mid-step.
+   */
+  maybeReseedExpiredCache(idleMs = 270_000): boolean {
+    const now = Date.now();
+    const prev = this.lastTurnAt;
+    this.lastTurnAt = now;
+    if (prev === 0) return false;
+    if (now - prev < idleMs) return false;
+    if (this.soulMapDiffChangedFiles.size === 0) return false;
+    this.resetForCompaction();
+    return true;
+  }
 }
 
 export { extractConversationTerms } from "./conversation-terms.js";
