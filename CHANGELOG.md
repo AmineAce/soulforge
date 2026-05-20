@@ -2,6 +2,14 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.16.1] — 2026-05-20
+
+### Features
+
+- configurable Anthropic cache TTL + fix lockin nudge tracking
+### Performance
+
+- reseed soul-map diff state after 5min idle on Anthropic cache
 ## [2.16.0] — 2026-05-20
 
 ### Bug Fixes
