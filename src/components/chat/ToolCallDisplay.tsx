@@ -1088,3 +1088,118 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
     </box>
   );
 });
+export function DispatchSubtree({ call }: { call: LiveToolCall }) {
+  const t = useTheme();
+  const isSubagent = SUBAGENT_NAMES.has(call.toolName);
+  const multiAgentInfo = useMemo(() => {
+    if (call.toolName !== "dispatch" || !call.args) return null;
+    try {
+      const parsed: Record<string, unknown> = JSON.parse(call.args);
+      if (Array.isArray(parsed.tasks) && parsed.tasks.length >= 1) {
+        const rawTasks: unknown[] = parsed.tasks;
+        const tasks = rawTasks.map((entry, i) => {
+          const e = isObj(entry) ? entry : {};
+          return {
+            agentId: String(e.id ?? e.agentId ?? `agent-${String(i + 1)}`),
+            role: typeof e.role === "string" ? e.role : undefined,
+            task: typeof e.task === "string" ? e.task : undefined,
+            dependsOn: Array.isArray(e.dependsOn) ? e.dependsOn.map(String) : undefined,
+          };
+        });
+        return { totalAgents: rawTasks.length, tasks };
+      }
+    } catch {}
+    return null;
+  }, [call.toolName, call.args]);
+  const isMultiAgent = multiAgentInfo !== null;
+
+  const dispatchRejection = useMemo(() => {
+    if (call.toolName !== "dispatch" || call.state !== "done" || !call.result) return null;
+    try {
+      const p = JSON.parse(call.result);
+      if (p.reads) return null;
+    } catch {}
+    const match = call.result.match(/(?:⛔|⚠️)\s*dispatch\s*\[rejected\s*→\s*(.+?)\]/);
+    return match?.[1] ?? null;
+  }, [call.toolName, call.state, call.result]);
+
+  const {
+    steps: allChildSteps,
+    progress: multiProgress,
+    stats: liveStats,
+  } = useDispatchDisplay(
+    isSubagent ? call.id : null,
+    (multiAgentInfo?.totalAgents ?? 1) * 15,
+    multiAgentInfo?.totalAgents ?? 0,
+    multiAgentInfo?.tasks,
+  );
+
+  if (!isSubagent) return null;
+
+  if (
+    isMultiAgent &&
+    multiProgress !== null &&
+    multiProgress.agents.size > 0 &&
+    !dispatchRejection
+  ) {
+    return (
+      <box flexDirection="column" marginLeft={2}>
+        {[...multiProgress.agents.entries()].map(([agentId, info], idx, arr) => {
+          const agentSteps = allChildSteps.filter((s) => s.agentId === agentId);
+          const isLastVisible = idx === arr.length - 1;
+          const allAccountedFor = arr.length >= (multiProgress.totalAgents ?? arr.length);
+          return (
+            <MultiAgentChildRow
+              key={agentId}
+              agentId={agentId}
+              info={info}
+              isFirst={idx === 0}
+              isLast={isLastVisible && allAccountedFor}
+              childSteps={agentSteps}
+              liveStats={liveStats.get(agentId)}
+            />
+          );
+        })}
+      </box>
+    );
+  }
+
+  if (!isMultiAgent && allChildSteps.length > 0) {
+    const filtered = allChildSteps.filter((s) => !QUIET_TOOLS.has(s.toolName));
+    const running = filtered.filter((s) => s.state === "running");
+    const doneCount = filtered.length - running.length;
+    const agentRunning = call.state === "running";
+    const showThinking = agentRunning && running.length === 0;
+    const lastRunning = running.length > 0 ? running[running.length - 1] : null;
+    return (
+      <box flexDirection="column">
+        {doneCount > 0 ? (
+          <box height={1} flexShrink={0} marginLeft={3}>
+            <text truncate>
+              <span fg={t.textFaint}>{lastRunning || showThinking ? "├ " : "└ "}</span>
+              <span fg={t.textDim}>+{String(doneCount)} completed</span>
+            </text>
+          </box>
+        ) : null}
+        {lastRunning ? (
+          <ChildStepRow
+            key={`${lastRunning.toolName}-${String(allChildSteps.indexOf(lastRunning))}`}
+            step={lastRunning}
+            isLast={!showThinking}
+          />
+        ) : null}
+        {showThinking ? (
+          <box height={1} flexShrink={0} marginLeft={3}>
+            <text truncate>
+              <span fg={t.textFaint}>└ </span>
+              <Spinner inline color={t.textMuted} />
+              <span fg={t.textMuted}> thinking...</span>
+            </text>
+          </box>
+        ) : null}
+      </box>
+    );
+  }
+
+  return null;
+}

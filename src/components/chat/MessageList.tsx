@@ -1276,7 +1276,7 @@ const AssistantMessage = memo(function AssistantMessage({
       if (seg.type === "tools") for (const id of seg.toolCallIds) ids.add(id);
     }
     return (msg.toolCalls ?? [])
-      .filter((tc) => ids.has(tc.id) && filterQuietTools(tc.name) && !SUBAGENT_NAMES.has(tc.name))
+      .filter((tc) => ids.has(tc.id) && filterQuietTools(tc.name))
       .map((tc) => ({
         id: tc.id,
         name: tc.name,
@@ -1296,9 +1296,9 @@ const AssistantMessage = memo(function AssistantMessage({
     });
   }, [autoLayout, msg.toolCalls]);
 
-  const autoRailDispatchCalls = useMemo(() => {
-    if (!autoLayout) return [];
-    return (msg.toolCalls ?? []).filter(
+  const autoRailHasDispatch = useMemo(() => {
+    if (!autoLayout) return false;
+    return !!(msg.toolCalls ?? []).some(
       (tc) =>
         SUBAGENT_NAMES.has(tc.name) &&
         autoLayout.railSegs.some((s) => s.type === "tools" && s.toolCallIds.includes(tc.id)),
@@ -1335,7 +1335,7 @@ const AssistantMessage = memo(function AssistantMessage({
             <box flexDirection="column" marginTop={autoLayout.opening ? 1 : 0}>
               <LockInWrapper
                 hasEdits={autoRailHasEdits}
-                hasDispatch={autoRailDispatchCalls.length > 0}
+                hasDispatch={autoRailHasDispatch}
                 done
                 seed={lockInSeed}
                 tools={autoRailTools}
@@ -1348,13 +1348,7 @@ const AssistantMessage = memo(function AssistantMessage({
                   const narration = autoLayout.narrationByTool.get(toolId);
                   return <ToolExpandedDetail tc={tc} narration={narration} diffStyle={diffStyle} />;
                 }}
-              >
-                {autoRailDispatchCalls.length > 0
-                  ? autoRailDispatchCalls.map((tc) => (
-                      <ToolCallRow key={tc.id} tc={tc} diffStyle="compact" collapseDiffs />
-                    ))
-                  : null}
-              </LockInWrapper>
+              />
             </box>
           ) : null}
           {autoLayout.finalSegs.length > 0 ? (

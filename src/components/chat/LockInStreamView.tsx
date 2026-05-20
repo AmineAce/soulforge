@@ -8,7 +8,13 @@ import { formatElapsed } from "../../hooks/useElapsed.js";
 import { useHover } from "../../hooks/useHover.js";
 import { Spinner } from "../layout/shared.js";
 import { DripText, type StreamSegment } from "./StreamSegmentList.js";
-import { type LiveToolCall, SUBAGENT_NAMES, ToolCallDisplay } from "./ToolCallDisplay.js";
+import {
+  DispatchSubtree,
+  type LiveToolCall,
+  SUBAGENT_NAMES,
+  TREE_PIPE,
+  TREE_SPACE,
+} from "./ToolCallDisplay.js";
 import { formatArgs } from "./tool-formatters.js";
 
 export const LOCKIN_EDIT_TOOLS = new Set([
@@ -77,6 +83,8 @@ export interface LockInTool {
   done: boolean;
   error: boolean;
   argStr: string;
+  /** Optional sub-tree rendered as a tree continuation directly below this row (e.g. dispatch subagents). */
+  subtree?: ReactNode;
 }
 
 export function filterQuietTools(name: string): boolean {
@@ -267,6 +275,17 @@ export const LockInWrapper = memo(function LockInWrapper({
                     ) : null}
                   </text>
                 </HoverableRow>
+                {tc.subtree ? (
+                  <box
+                    border={["left"]}
+                    customBorderChars={isLast ? TREE_SPACE : TREE_PIPE}
+                    borderColor={t.textFaint}
+                    paddingLeft={1}
+                    flexDirection="column"
+                  >
+                    {tc.subtree}
+                  </box>
+                ) : null}
                 {interactive && isExpanded && toolDetails ? toolDetails(tc.id) : null}
               </box>
             );
@@ -347,13 +366,15 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
   const tools = useMemo(() => {
     const next: LockInTool[] = [];
     for (const tc of liveToolCalls) {
-      if (!filterQuietTools(tc.toolName) || SUBAGENT_NAMES.has(tc.toolName)) continue;
+      if (!filterQuietTools(tc.toolName)) continue;
+      const isDispatch = SUBAGENT_NAMES.has(tc.toolName);
       next.push({
         id: tc.id,
         name: tc.toolName,
         done: tc.state !== "running",
         error: tc.state === "error",
         argStr: formatArgs(tc.toolName, tc.args),
+        subtree: isDispatch ? <DispatchSubtree call={tc} /> : undefined,
       });
     }
     const prev = toolsRef.current;
@@ -366,7 +387,8 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
           p.name === next[i]?.name &&
           p.done === next[i]?.done &&
           p.error === next[i]?.error &&
-          p.argStr === next[i]?.argStr,
+          p.argStr === next[i]?.argStr &&
+          !!p.subtree === !!next[i]?.subtree,
       )
     ) {
       return prev;
@@ -375,28 +397,10 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
     return next;
   }, [liveToolCalls]);
 
-  const dispatchRef = useRef<LiveToolCall[]>([]);
-  const dispatchCalls = useMemo(() => {
-    const next = liveToolCalls.filter((tc) => SUBAGENT_NAMES.has(tc.toolName));
-    const prev = dispatchRef.current;
-    if (
-      prev.length === next.length &&
-      prev.every(
-        (p, i) =>
-          next[i] !== undefined &&
-          p.id === next[i]?.id &&
-          p.state === next[i]?.state &&
-          p.args === next[i]?.args &&
-          p.result === next[i]?.result &&
-          p.error === next[i]?.error &&
-          p.progressText === next[i]?.progressText,
-      )
-    ) {
-      return prev;
-    }
-    dispatchRef.current = next;
-    return next;
-  }, [liveToolCalls]);
+  const hasDispatch = useMemo(
+    () => liveToolCalls.some((tc) => SUBAGENT_NAMES.has(tc.toolName)),
+    [liveToolCalls],
+  );
 
   const hasEdits = useMemo(
     () => liveToolCalls.some((tc) => LOCKIN_EDIT_TOOLS.has(tc.toolName)),
@@ -407,7 +411,9 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
   // not yet committed to the final answer, and no dispatch is mid-flight.
   // That gap = narration tokens streaming with no visible surface.
   const allToolsDone = tools.length > 0 && tools.every((t) => t.done);
-  const dispatchActive = dispatchCalls.some((tc) => tc.state === "running");
+  const dispatchActive = liveToolCalls.some(
+    (tc) => SUBAGENT_NAMES.has(tc.toolName) && tc.state === "running",
+  );
   const pendingNarration = allToolsDone && !dispatchActive && committedAt === null;
 
   if (chatOnlyText) {
@@ -425,20 +431,16 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
           <DripText content={opening} streaming />
         </box>
       ) : null}
-      {tools.length > 0 || dispatchCalls.length > 0 ? (
+      {tools.length > 0 ? (
         <LockInWrapper
           hasEdits={hasEdits}
-          hasDispatch={dispatchCalls.length > 0}
+          hasDispatch={hasDispatch}
           done={false}
           seed={messagesLength}
           loadingStartedAt={loadingStartedAt}
           tools={tools}
           pendingNarration={pendingNarration}
-        >
-          {dispatchCalls.length > 0 ? (
-            <ToolCallDisplay calls={dispatchCalls} diffStyle="compact" />
-          ) : null}
-        </LockInWrapper>
+        />
       ) : null}
       {trailingText ? (
         <box flexDirection="column" marginTop={1}>
