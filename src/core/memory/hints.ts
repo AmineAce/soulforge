@@ -250,31 +250,102 @@ interface TopCandidate {
 }
 
 /**
- * Subagent gate — looser than before. Memories are relevant by definition
- * if the recall query matched (paths/topics/query). Surface any hit so the
- * subagent gets the same signal the parent would. Budget still applies.
+ * Subagent gate — memories are relevant by definition if recall matched.
+ * Surface any hit so subagents see the same signal as the parent.
  */
 function passesSubagentGate(top: TopCandidate | null): boolean {
   return top != null;
 }
 
-/** Budget gate — past budget, only gotcha/pinned slip through. */
+/** Budget gate — past budget, only pinned/pref/gotcha slip through. */
 function passesBudgetGate(top: TopCandidate | null, tabId: string): boolean {
   if (budgetUsed(tabId) < budgetLimit()) return true;
   if (!top) return false;
-  return top.pinned || top.category === "gotcha";
+  return top.pinned || top.category === "gotcha" || top.category === "pref";
 }
 
 /**
- * Build the hint line. Shape:
- *   gotcha:  · gotcha "JWT expiry uses container clock" [a97ae3be] — review before commit
- *   pinned:  · pinned pref "Be terse, fragments over sentences" [1d6d9516]
- *   volume:  · 3 memories — memory(search) recommended
- *   single:  · "Commit shape" [a97ae3be] — review before commit
- * Returns "" when nothing should surface.
+ * Category loudness rank — drives merge ordering and loud/quiet bucketing.
+ *   pref  → user-stated rule; loudest signal after pinned
+ *   gotcha → past bug warning
+ *   decision → rationale; quieter
+ *   context → background; quietest
+ */
+function categoryRank(cat: MemoryCategory | null): number {
+  switch (cat) {
+    case "pref":
+      return 0;
+    case "gotcha":
+      return 1;
+    case "decision":
+      return 2;
+    case "context":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+/** Loud = pinned OR (pref|gotcha). One dedicated line each, cap at 3. */
+function isLoud(c: TopCandidate): boolean {
+  return c.pinned || c.category === "pref" || c.category === "gotcha";
+}
+
+/**
+ * Cooldown bypass — pinned and pref are durable rules. Re-surface every
+ * turn until the agent acts on them (markMemoryAction fires for the turn).
+ * gotcha/decision/context honor the 10-turn cooldown.
+ */
+function bypassesCooldown(c: TopCandidate): boolean {
+  return c.pinned || c.category === "pref";
+}
+
+/** Dedup by id, then sort: pinned > category rank > stable. */
+function mergeAndRank(rows: TopCandidate[]): TopCandidate[] {
+  const seen = new Set<string>();
+  const uniq: TopCandidate[] = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    uniq.push(r);
+  }
+  uniq.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const ca = categoryRank(a.category);
+    const cb = categoryRank(b.category);
+    return ca - cb;
+  });
+  return uniq;
+}
+
+function labelFor(c: TopCandidate): string {
+  if (c.category === "gotcha") return c.pinned ? "pinned gotcha" : "gotcha";
+  if (c.pinned) return c.category ? `pinned ${c.category}` : "pinned";
+  if (c.category && c.category !== "context") return c.category;
+  return "";
+}
+
+/** Format one candidate line (no leading newline). */
+function formatCandidateLine(c: TopCandidate, ctx: HintContext): string {
+  const id8 = c.id.slice(0, 8);
+  const summary = truncateSummary(c.summary);
+  const imp = imperativeFor(ctx);
+  const label = labelFor(c);
+  const labelPart = label ? `${label} ` : "";
+  return `· ${labelPart}"${summary}" [${id8}]${imp}`;
+}
+
+const LOUD_LINES_MAX = 3;
+
+/**
+ * Build the hint tail. Loud memories (pinned/pref/gotcha) each get a line,
+ * up to LOUD_LINES_MAX. Quiet memories (decision/context) collapse into a
+ * `+N more` tail. Pinned and pref bypass the 10-turn cooldown — they're
+ * durable rules, re-surface until the agent acts. Returns "" when nothing
+ * should surface.
  */
 function buildHintLine(
-  top: TopCandidate | null,
+  candidates: TopCandidate[],
   total: number,
   ctx: HintContext,
   tabId: string,
@@ -282,53 +353,62 @@ function buildHintLine(
   if (total <= 0) return "";
   if (isLateContext(ctx)) return "";
   if (getActed(tabId)) return "";
+
+  const top = candidates[0] ?? null;
   if (inSubagentScope() && !passesSubagentGate(top)) return "";
   if (!passesBudgetGate(top, tabId)) return "";
 
   const surfaced = getSurfacedSet(tabId);
   const tabState = inSubagentScope() ? null : getTabState(tabId);
 
-  // Top already shown — collapse to a volume hint only if multi-match.
-  if (top && (surfaced.has(top.id) || (tabState && tabState.surfacedRecently.has(top.id)))) {
+  // Filter: skip already-surfaced this turn, honor cooldown for non-bypass.
+  const fresh = candidates.filter((c) => {
+    if (surfaced.has(c.id)) return false;
+    if (bypassesCooldown(c)) return true;
+    if (tabState?.surfacedRecently.has(c.id)) return false;
+    return true;
+  });
+
+  if (fresh.length === 0) {
     if (total < 3) return "";
     return `\n· ${String(total)} memories — memory(search) recommended`;
   }
 
-  if (!top) {
+  // Split: loud → dedicated lines (cap LOUD_LINES_MAX), quiet → +N tail.
+  const loud: TopCandidate[] = [];
+  const quiet: TopCandidate[] = [];
+  for (const c of fresh) (isLoud(c) ? loud : quiet).push(c);
+
+  const picked = loud.slice(0, LOUD_LINES_MAX);
+  // If no loud candidates, promote the top quiet one so the user still sees
+  // something actionable instead of a bare count.
+  if (picked.length === 0 && quiet.length > 0) {
+    const q = quiet.shift();
+    if (q) picked.push(q);
+  }
+
+  if (picked.length === 0) {
+    if (total < 3) return "";
     return `\n· ${String(total)} memories — memory(search) recommended`;
   }
 
-  surfaced.add(top.id);
-  if (tabState) tabState.surfacedRecently.set(top.id, tabState.turnCounter);
-  bumpBudget(tabId);
-  // Telemetry — surface_count++. Acted is recorded later by recordMemoryAction.
-  if (_manager) {
-    try {
-      _manager.getDbForScope("project").recordSurface(top.id, false);
-      _manager.getDbForScope("global").recordSurface(top.id, false);
-    } catch {}
+  for (const c of picked) {
+    surfaced.add(c.id);
+    if (tabState) tabState.surfacedRecently.set(c.id, tabState.turnCounter);
+    bumpBudget(tabId);
+    if (_manager) {
+      try {
+        _manager.getDbForScope("project").recordSurface(c.id, false);
+        _manager.getDbForScope("global").recordSurface(c.id, false);
+      } catch {}
+    }
   }
 
-  const id8 = top.id.slice(0, 8);
-  const summary = truncateSummary(top.summary);
-  const imp = imperativeFor(ctx);
-
-  // Label: prioritize category for gotcha, then pinned.
-  let label: string;
-  if (top.category === "gotcha") {
-    label = top.pinned ? "pinned gotcha" : "gotcha";
-  } else if (top.pinned) {
-    label = top.category ? `pinned ${top.category}` : "pinned";
-  } else if (top.category && top.category !== "context") {
-    label = top.category;
-  } else {
-    label = "";
-  }
-
-  const labelPart = label ? `${label} ` : "";
-  const rest = total - 1;
-  const more = rest > 0 ? ` +${String(rest)}` : "";
-  return `\n· ${labelPart}"${summary}" [${id8}]${more}${imp}`;
+  const lines = picked.map((c) => formatCandidateLine(c, ctx));
+  const remainingLoud = Math.max(0, loud.length - picked.length);
+  const restCount = remainingLoud + quiet.length;
+  const tail = restCount > 0 ? `\n+${String(restCount)} more` : "";
+  return `\n${lines.join("\n")}${tail}`;
 }
 
 /**
@@ -473,22 +553,14 @@ export function memoryHintComposite(opts: {
     const total = ids.size;
     if (total === 0) return "";
 
-    // Rank: query both scopes for top candidate, pick the loudest signal.
-    const projectTop = projectDb.topRecallFor(opts, 1);
-    const globalTop = globalDb.topRecallFor(opts, 1);
-    let top: TopCandidate | null = null;
-    const candidates = [...projectTop, ...globalTop];
-    for (const c of candidates) {
-      if (!top) {
-        top = c;
-        continue;
-      }
-      // Loudest wins: pinned > gotcha > existing.
-      if (c.pinned && !top.pinned) top = c;
-      else if (c.category === "gotcha" && top.category !== "gotcha" && !top.pinned) top = c;
-    }
+    // Rank: fetch enough candidates from each scope to cover the loud cap
+    // plus a margin, then merge + sort (pinned > pref > gotcha > decision).
+    const FETCH_PER_SCOPE = Math.max(LOUD_LINES_MAX * 2, 6);
+    const projectTops = projectDb.topRecallFor(opts, FETCH_PER_SCOPE);
+    const globalTops = globalDb.topRecallFor(opts, FETCH_PER_SCOPE);
+    const merged = mergeAndRank([...projectTops, ...globalTops]);
 
-    return buildHintLine(top, total, ctx, tabId);
+    return buildHintLine(merged, total, ctx, tabId);
   } catch (err) {
     reportHintError("composite", err);
     return "";
