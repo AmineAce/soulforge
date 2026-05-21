@@ -8,6 +8,22 @@ import type { WorkingStateManager } from "./working-state.js";
  * (before pruning truncates it), which is v2's structural advantage.
  */
 
+/**
+ * Memory hint footer regex — strips the inline `· …` tail appended by
+ * memoryHintComposite / memoryHintForPaths before tool results enter the
+ * compacted state. Hints are ephemeral interruption signals — they earn
+ * tokens by changing live behavior in the turn they fire. Persisting them
+ * into compacted history pays forever for a hint that's already past its
+ * usefulness window. Agent's follow-up memory(get) calls (separate tool
+ * calls) survive — only the footer is stripped.
+ */
+const MEMORY_HINT_FOOTER_RE =
+  /\n· (?:\d+ memor(?:y|ies)(?: — memory\(search\) recommended)?|(?:pinned (?:gotcha|pref|decision|context)|gotcha|pinned|pref|decision)\s+"[^"]*"\s+\[[a-f0-9]+\](?:\s+\+\d+)?(?: — [^\n]*)?)$/;
+
+export function stripMemoryHintFooter(s: string): string {
+  return s.replace(MEMORY_HINT_FOOTER_RE, "");
+}
+
 const READ_TOOLS = new Set([
   "read",
   "navigate",
@@ -65,7 +81,8 @@ export function extractFromToolResult(
   result: unknown,
   _args?: Record<string, unknown>,
 ): void {
-  const resultStr = typeof result === "string" ? result : JSON.stringify(result);
+  const rawStr = typeof result === "string" ? result : JSON.stringify(result);
+  const resultStr = stripMemoryHintFooter(rawStr);
 
   if (isErrorResult(resultStr)) {
     const errorSummary = extractErrorSummary(resultStr);
