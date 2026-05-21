@@ -14,7 +14,11 @@ import type { SymbolForSummary } from "../intelligence/repo-map.js";
 import { cacheTtlToMs, supportsPromptCache } from "../llm/cache-support.js";
 import { resolveModel } from "../llm/provider.js";
 import { EPHEMERAL_CACHE, supportsTemperature } from "../llm/provider-options.js";
-import { resetSurfacedHints, setMemoryHintProvider } from "../memory/hints.js";
+import {
+  memoryMarkersForPaths,
+  resetSurfacedHints,
+  setMemoryHintProvider,
+} from "../memory/hints.js";
 import { MemoryManager } from "../memory/manager.js";
 import { MemoryRecall } from "../memory/recall.js";
 import { describeRecallSignals, MEMORY_RECALL_ACK } from "../memory/types.js";
@@ -1427,11 +1431,16 @@ export class ContextManager {
       const MAX_RICH_BLOCKS = 5;
       let richBlockCount = 0;
 
+      // Batch-lookup memory markers for all delta paths in a single DB call.
+      // Surfaces `[gotcha]` / `[pref]` / `[pinned]` next to files with stored
+      // intent so Forge sees relevant history at-a-glance.
+      const memoryMarkers = memoryMarkersForPaths(changed.slice(0, 15));
+
       for (const file of changed.slice(0, 15)) {
         const absPath = join(this.cwd, file);
         const fileExists = existsSync(absPath);
         const block = this.soulMapDiffBlocks.get(file);
-        const provenance = this.classifyDeltaFile(absPath, file);
+        const provenance = this.classifyDeltaFile(absPath, file, memoryMarkers.get(file));
 
         if (!fileExists) {
           // Deleted file
@@ -1468,7 +1477,11 @@ export class ContextManager {
     return this.pendingSoulMapDiff;
   }
 
-  private classifyDeltaFile(absPath: string, rel: string): string {
+  private classifyDeltaFile(
+    absPath: string,
+    rel: string,
+    memMarker?: { category: string | null; count: number; pinned: boolean },
+  ): string {
     const tags: string[] = [];
     if (this.editedFiles.has(absPath)) tags.push("[edited]");
     if (this.mentionedFiles.has(absPath)) tags.push("[mentioned]");
@@ -1478,6 +1491,12 @@ export class ContextManager {
     }
     const failure = this.recentToolFailures.find((f) => f.target === absPath || f.target === rel);
     if (failure) tags.push(`[recent failure: ${failure.tool} — ${failure.reason}]`);
+    if (memMarker && memMarker.count > 0) {
+      const cat = memMarker.category ?? "memory";
+      const pin = memMarker.pinned ? "pinned " : "";
+      const n = memMarker.count > 1 ? ` ×${String(memMarker.count)}` : "";
+      tags.push(`[${pin}${cat}${n}]`);
+    }
     return tags.join(" ");
   }
 

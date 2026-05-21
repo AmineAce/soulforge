@@ -1265,6 +1265,36 @@ export class MemoryDB {
       }
     } catch {}
   }
+
+  topCategoriesByPath(
+    paths: string[],
+  ): Map<string, { category: string | null; count: number; pinned: number }> {
+    const out = new Map<string, { category: string | null; count: number; pinned: number }>();
+    if (paths.length === 0) return out;
+    const placeholders = paths.map(() => "?").join(",");
+    const rows = this.db
+      .query<{ path: string; category: string | null; pinned: number }, string[]>(
+        `SELECT mf.path, m.category, m.pinned
+         FROM memories m
+         JOIN memory_files mf ON mf.memory_id = m.id
+         WHERE mf.path IN (${placeholders}) AND m.hidden = 0`,
+      )
+      .all(...paths);
+    const priority: Record<string, number> = { gotcha: 4, pref: 3, decision: 2, context: 1 };
+    for (const r of rows) {
+      const cur = out.get(r.path);
+      if (!cur) {
+        out.set(r.path, { category: r.category, count: 1, pinned: r.pinned });
+        continue;
+      }
+      cur.count += 1;
+      if (r.pinned > cur.pinned) cur.pinned = r.pinned;
+      const a = cur.category ? (priority[cur.category] ?? 0) : 0;
+      const b = r.category ? (priority[r.category] ?? 0) : 0;
+      if (b > a) cur.category = r.category;
+    }
+    return out;
+  }
 }
 
 function normalize(s: string): string {

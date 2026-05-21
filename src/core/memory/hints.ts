@@ -566,3 +566,31 @@ export function memoryHintComposite(opts: {
     return "";
   }
 }
+export function memoryMarkersForPaths(
+  paths: string[],
+): Map<string, { category: string | null; count: number; pinned: boolean }> {
+  const result = new Map<string, { category: string | null; count: number; pinned: boolean }>();
+  if (!_manager || paths.length === 0) return result;
+  try {
+    const projectDb = _manager.getDbForScope("project");
+    const globalDb = _manager.getDbForScope("global");
+    const project = projectDb.topCategoriesByPath(paths);
+    const global = globalDb.topCategoriesByPath(paths);
+    const priority: Record<string, number> = { gotcha: 4, pref: 3, decision: 2, context: 1 };
+    for (const path of paths) {
+      const p = project.get(path);
+      const g = global.get(path);
+      if (!p && !g) continue;
+      const count = (p?.count ?? 0) + (g?.count ?? 0);
+      const pinned = (p?.pinned ?? 0) + (g?.pinned ?? 0) > 0;
+      const a = p?.category ? (priority[p.category] ?? 0) : 0;
+      const b = g?.category ? (priority[g.category] ?? 0) : 0;
+      const category = b > a ? (g?.category ?? null) : (p?.category ?? g?.category ?? null);
+      result.set(path, { category, count, pinned });
+    }
+    return result;
+  } catch (err) {
+    reportHintError("paths", err);
+    return result;
+  }
+}
