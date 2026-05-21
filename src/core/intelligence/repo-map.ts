@@ -62,6 +62,7 @@ interface EdgeRow {
   source_file_id: number;
   target_file_id: number;
   weight: number;
+  is_type_edge?: number;
 }
 
 export interface RepoMapOptions {
@@ -333,6 +334,13 @@ export class RepoMap {
     // Migration: add confidence tier to edges
     try {
       this.db.run("ALTER TABLE edges ADD COLUMN confidence INTEGER NOT NULL DEFAULT 1");
+    } catch {}
+
+    // Migration: add is_type_edge flag (0=normal, 1=target is type-heavy).
+    // Default 0 means "treated as full-weight" → identical to current behavior
+    // on unmigrated rows. Populated by buildEdges; consumed by PageRank.
+    try {
+      this.db.run("ALTER TABLE edges ADD COLUMN is_type_edge INTEGER NOT NULL DEFAULT 0");
     } catch {}
 
     // Meta key/value store — used for caching invariants like cochange HEAD sha
@@ -1598,9 +1606,32 @@ export class RepoMap {
       }
     }
 
+    // Compute type-heavy targets in one pass: an edge into a file whose
+    // symbol set is dominated by structural-type kinds gets is_type_edge=1.
+    // PageRank scales its weight down so type-barrel files stop dominating.
+    const typeHeavyTargets = new Set<number>();
+    try {
+      const rows = this.db
+        .query<{ file_id: number; type_count: number; total: number }, []>(
+          `SELECT file_id,
+                  SUM(CASE WHEN kind IN ('interface','type','enum','trait') THEN 1 ELSE 0 END) as type_count,
+                  COUNT(*) as total
+           FROM symbols
+           GROUP BY file_id`,
+        )
+        .all();
+      for (const r of rows) {
+        if (r.total >= 5 && r.type_count / r.total > 0.66) {
+          typeHeavyTargets.add(r.file_id);
+        }
+      }
+    } catch {
+      // Query failure → no edges flagged → falls back to legacy weights.
+    }
+
     // Insert all edges
     const insert = this.db.prepare(
-      "INSERT OR REPLACE INTO edges (source_file_id, target_file_id, weight, confidence) VALUES (?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO edges (source_file_id, target_file_id, weight, confidence, is_type_edge) VALUES (?, ?, ?, ?, ?)",
     );
     const entries = [...edgeMap.entries()];
     const BATCH = 200;
@@ -1609,7 +1640,9 @@ export class RepoMap {
       const tx = this.db.transaction(() => {
         for (const [key, edge] of batch) {
           const [src, tgt] = key.split(":");
-          insert.run(Number(src), Number(tgt), edge.weight, edge.confidence);
+          const tgtId = Number(tgt);
+          const isTypeEdge = typeHeavyTargets.has(tgtId) ? 1 : 0;
+          insert.run(Number(src), tgtId, edge.weight, edge.confidence, isTypeEdge);
         }
       });
       try {
@@ -1828,14 +1861,17 @@ export class RepoMap {
     const adj: Array<{ from: number; to: number; weight: number }> = [];
 
     const edges = this.db
-      .query<EdgeRow, []>("SELECT source_file_id, target_file_id, weight FROM edges")
+      .query<EdgeRow, []>("SELECT source_file_id, target_file_id, weight, is_type_edge FROM edges")
       .all();
 
     for (const edge of edges) {
       const src = idToIdx.get(edge.source_file_id);
       const tgt = idToIdx.get(edge.target_file_id);
       if (src !== undefined && tgt !== undefined) {
-        const w = edge.weight || 1;
+        // Scale type-only edges down so type-barrel targets don't accumulate
+        // disproportionate inbound rank. Defaults to full weight on legacy rows.
+        const typeScale = edge.is_type_edge === 1 ? 0.3 : 1.0;
+        const w = (edge.weight || 1) * typeScale;
         adj.push({ from: src, to: tgt, weight: w });
         outWeight[src] = (outWeight[src] ?? 0) + w;
       }
@@ -1921,14 +1957,15 @@ export class RepoMap {
     const adj: Array<{ from: number; to: number; weight: number }> = [];
 
     const edges = this.db
-      .query<EdgeRow, []>("SELECT source_file_id, target_file_id, weight FROM edges")
+      .query<EdgeRow, []>("SELECT source_file_id, target_file_id, weight, is_type_edge FROM edges")
       .all();
 
     for (const edge of edges) {
       const src = idToIdx.get(edge.source_file_id);
       const tgt = idToIdx.get(edge.target_file_id);
       if (src !== undefined && tgt !== undefined) {
-        const w = edge.weight || 1;
+        const typeScale = edge.is_type_edge === 1 ? 0.3 : 1.0;
+        const w = (edge.weight || 1) * typeScale;
         adj.push({ from: src, to: tgt, weight: w });
         outWeight[src] = (outWeight[src] ?? 0) + w;
       }
