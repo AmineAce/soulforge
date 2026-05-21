@@ -558,11 +558,32 @@ export class SessionManager {
     // ── Reassemble messages.jsonl by walking tabs in order ──
     // Each non-target tab keeps its existing slice (sliced from existingAllMessages
     // using its prior messageRange). Target tab uses the new messages.
+    //
+    // TRUNCATION GUARD: if `messages` is shorter than the target tab's prior
+    // on-disk slice, prefer the on-disk version. A shorter incoming array is
+    // almost always a stale closure (older snapshot races a newer save) —
+    // accepting it would permanently drop user-visible history because the
+    // next save reads the truncated jsonl back as authoritative. UI must be a
+    // superset of what the model sees; we never shrink messages.jsonl unless
+    // the caller went through an explicit clear flow.
     const allMessages: ChatMessage[] = [];
     const updatedTabs: TabMeta[] = updatedTabsRaw.map((t) => {
       let msgs: ChatMessage[];
       if (t.id === tabMeta.id) {
-        msgs = messages;
+        if (tabIdx >= 0) {
+          const prevRange = oldTabs[tabIdx]?.messageRange;
+          const priorSlice = prevRange
+            ? existingAllMessages.slice(prevRange.startLine, prevRange.endLine)
+            : [];
+          if (messages.length < priorSlice.length) {
+            // Stale-closure save — keep durable on-disk history.
+            msgs = priorSlice;
+          } else {
+            msgs = messages;
+          }
+        } else {
+          msgs = messages;
+        }
       } else {
         const prevRange = t.messageRange;
         msgs = existingAllMessages.slice(prevRange.startLine, prevRange.endLine);

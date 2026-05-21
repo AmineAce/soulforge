@@ -267,7 +267,25 @@ export function useChat({
   visible = true,
   onModelChange,
 }: UseChatOptions): ChatInstance {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialState?.messages ?? []);
+  const [messages, setMessagesRaw] = useState<ChatMessage[]>(initialState?.messages ?? []);
+  // Live ref mirror so save sites always read the LATEST messages, not a
+  // closure-captured snapshot. Stale snapshots were truncating messages.jsonl
+  // because doSaveTab spliced a shorter slice into the tab's range, and the
+  // next save read that truncation back as authoritative.
+  const messagesRef = useRef<ChatMessage[]>(initialState?.messages ?? []);
+  messagesRef.current = messages;
+  const setMessages: typeof setMessagesRaw = useCallback((action) => {
+    if (typeof action === "function") {
+      setMessagesRaw((prev) => {
+        const next = (action as (p: ChatMessage[]) => ChatMessage[])(prev);
+        messagesRef.current = next;
+        return next;
+      });
+    } else {
+      messagesRef.current = action;
+      setMessagesRaw(action);
+    }
+  }, []);
   const [coreMessages, setCoreMessages] = useState<ModelMessage[]>(
     initialState?.coreMessages ?? [],
   );
@@ -1719,9 +1737,11 @@ export function useChat({
       };
       setMessages((prev) => {
         const allMsgs = [...prev, userMsg];
-        // Persist immediately after user sends — crash-safe checkpoint.
-        // Per-tab slice write: never touches other tabs' on-disk content.
-        queueMicrotask(() => persistThisTab(allMsgs, coreMessagesRef.current));
+        // messagesRef updates synchronously inside setMessages — safe to read
+        // in the queueMicrotask below. Using the ref (vs the closure-captured
+        // allMsgs) guarantees the save always sees the LATEST messages so
+        // concurrent saves can't truncate messages.jsonl with a stale snapshot.
+        queueMicrotask(() => persistThisTab(messagesRef.current, coreMessagesRef.current));
         return allMsgs;
       });
 
@@ -3014,10 +3034,12 @@ export function useChat({
                       };
                       // Read current state without mutating — partial is a
                       // checkpoint, never committed into the messages list.
-                      setMessages((prev) => {
-                        persistThisTab([...prev, partialMsg], coreMessagesRef.current);
-                        return prev;
-                      });
+                      // Partial checkpoint: include the in-flight assistant
+                      // (with whatever tool calls completed so far) so the UI
+                      // mirrors what the model sees mid-stream. Don't commit
+                      // partialMsg into state — it's superseded by the
+                      // finalize save below.
+                      persistThisTab([...messagesRef.current, partialMsg], coreMessagesRef.current);
                     } catch {
                       // Don't let checkpoint failures interrupt streaming
                     }
@@ -3144,11 +3166,9 @@ export function useChat({
               }
             : null;
 
-          // Capture the final messages list outside setMessages so we can
-          // persist AFTER setCoreMessagesEager has updated coreMessagesRef —
-          // this fixes the race where the saved core.json missed the final
-          // assistant response.
-          let finalMsgsForSave: ChatMessage[] = [];
+          // Commit the final messages list — messagesRef updates synchronously
+          // inside setMessages, so the persistThisTab below reads the
+          // post-commit value (no closure-capture race).
           setMessages((prev) => {
             const allMsgs = [
               ...prev,
@@ -3156,7 +3176,6 @@ export function useChat({
               ...errorMsgs,
               ...(prematureStopMsg ? [prematureStopMsg] : []),
             ];
-            finalMsgsForSave = allMsgs;
             // Finalize streaming: flush any remaining text + reasoning + emit turn-done.
             // Individual text-delta / tool-call / tool-result / reasoning-delta events
             // were already streamed during the turn.
@@ -3218,10 +3237,11 @@ export function useChat({
             const target = effectiveConfig.contextManagement?.pruningTarget ?? "none";
             return ["main", "both"].includes(target) ? pruneOldToolResults(updated) : updated;
           });
-          // Persist final state — coreMessagesRef is now caught up because
-          // setCoreMessagesEager updates the ref synchronously inside its
-          // reducer. messages was committed inside the setMessages above.
-          persistThisTab(finalMsgsForSave, coreMessagesRef.current);
+          // Persist final state — both refs are now caught up because
+          // setMessages/setCoreMessagesEager update their refs synchronously
+          // inside their reducers. Read from messagesRef so the save sees the
+          // committed final assistant, not a stale closure.
+          persistThisTab(messagesRef.current, coreMessagesRef.current);
           streamSegmentsBuffer.current = [];
           liveToolCallsBuffer.current = [];
           lastFlushedSegments.current = [];
