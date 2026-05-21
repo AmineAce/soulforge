@@ -15,12 +15,7 @@ import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { clearEditStacks } from "../../core/tools/edit-stack.js";
 import { planFileName } from "../../core/tools/index.js";
 import { disposeTaskScope, setActiveTaskTab } from "../../core/tools/task-list.js";
-import {
-  type ChatInstance,
-  type TabState,
-  useChat,
-  type WorkspaceSnapshot,
-} from "../../hooks/useChat.js";
+import { type ChatInstance, type TabState, useChat } from "../../hooks/useChat.js";
 import { useLandingTransition } from "../../hooks/useLandingTransition.js";
 import type { TabActivity } from "../../hooks/useTabs.js";
 import { useCheckpointStore } from "../../stores/checkpoints.js";
@@ -79,7 +74,6 @@ interface TabInstanceProps {
   anyModalOpen: boolean;
   bootProviders: ProviderStatus[];
   bootPrereqs: PrerequisiteStatus[];
-  getWorkspaceSnapshot: () => WorkspaceSnapshot;
   editorIntegration?: EditorIntegration;
   editorOpen: boolean;
   editorFile: string | null;
@@ -128,7 +122,6 @@ export const TabInstance = memo(function TabInstance({
   anyModalOpen,
   bootProviders,
   bootPrereqs,
-  getWorkspaceSnapshot,
   editorIntegration,
   editorOpen,
   editorFile,
@@ -225,7 +218,6 @@ export const TabInstance = memo(function TabInstance({
     openEditor,
     onSuspend,
     initialState,
-    getWorkspaceSnapshot,
     visible,
     onModelChange,
   });

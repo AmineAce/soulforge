@@ -228,3 +228,164 @@ describe("SessionManager", () => {
 		expect(loaded!.tabMessages.get("tab-b")![1]!.content).toBe("tab b msg2");
 	});
 });
+
+// ── saveTab slice writes — the multi-tab restore-corruption fix ───────────
+describe("SessionManager.saveTab", () => {
+	let manager: SessionManager;
+	const SID = "app-session-1";
+	const fallback = (activeTabId: string) => ({
+		title: "Test",
+		cwd: TEST_DIR,
+		forgeMode: "default" as const,
+		activeTabId,
+	});
+
+	beforeEach(() => {
+		if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+		mkdirSync(TEST_DIR, { recursive: true });
+		manager = new SessionManager(TEST_DIR);
+	});
+
+	afterEach(() => {
+		if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+	});
+
+	it("writes a single tab into an empty session dir", async () => {
+		const tab = makeTab("tab-a");
+		const msgs = [makeMessage("user", "hello a")];
+		await manager.saveTab(SID, tab, msgs, undefined, fallback("tab-a"));
+
+		const loaded = manager.loadSession(SID);
+		expect(loaded).not.toBeNull();
+		expect(loaded!.meta.tabs).toHaveLength(1);
+		expect(loaded!.tabMessages.get("tab-a")![0]!.content).toBe("hello a");
+	});
+
+	it("preserves other tabs when only one tab saves", async () => {
+		// Initial multi-tab session.
+		await manager.saveSession(
+			makeMeta(SID, [{ id: "tab-a" }, { id: "tab-b" }, { id: "tab-c" }]),
+			new Map([
+				["tab-a", [makeMessage("user", "A1"), makeMessage("assistant", "A2")]],
+				["tab-b", [makeMessage("user", "B1")]],
+				["tab-c", [makeMessage("user", "C1")]],
+			]),
+		);
+
+		// Only tab-c saves a new final assistant message.
+		await manager.saveTab(
+			SID,
+			makeTab("tab-c"),
+			[makeMessage("user", "C1"), makeMessage("assistant", "C-FINAL")],
+			undefined,
+			fallback("tab-c"),
+		);
+
+		const loaded = manager.loadSession(SID);
+		expect(loaded).not.toBeNull();
+		expect(loaded!.meta.tabs).toHaveLength(3);
+		// tab-a + tab-b untouched
+		expect(loaded!.tabMessages.get("tab-a")).toHaveLength(2);
+		expect(loaded!.tabMessages.get("tab-a")![1]!.content).toBe("A2");
+		expect(loaded!.tabMessages.get("tab-b")![0]!.content).toBe("B1");
+		// tab-c got the new final assistant
+		expect(loaded!.tabMessages.get("tab-c")).toHaveLength(2);
+		expect(loaded!.tabMessages.get("tab-c")![1]!.content).toBe("C-FINAL");
+	});
+
+	it("concurrent saves from different tabs all land — no tab lost", async () => {
+		await manager.saveSession(
+			makeMeta(SID, [{ id: "tab-a" }, { id: "tab-b" }, { id: "tab-c" }]),
+			new Map([
+				["tab-a", []],
+				["tab-b", []],
+				["tab-c", []],
+			]),
+		);
+
+		await Promise.all([
+			manager.saveTab(
+				SID,
+				makeTab("tab-a"),
+				[makeMessage("user", "A-final")],
+				undefined,
+				fallback("tab-a"),
+			),
+			manager.saveTab(
+				SID,
+				makeTab("tab-b"),
+				[makeMessage("user", "B-final")],
+				undefined,
+				fallback("tab-b"),
+			),
+			manager.saveTab(
+				SID,
+				makeTab("tab-c"),
+				[makeMessage("user", "C-final")],
+				undefined,
+				fallback("tab-c"),
+			),
+		]);
+
+		const loaded = manager.loadSession(SID);
+		expect(loaded).not.toBeNull();
+		expect(loaded!.meta.tabs).toHaveLength(3);
+		expect(loaded!.tabMessages.get("tab-a")![0]!.content).toBe("A-final");
+		expect(loaded!.tabMessages.get("tab-b")![0]!.content).toBe("B-final");
+		expect(loaded!.tabMessages.get("tab-c")![0]!.content).toBe("C-final");
+	});
+
+	it("appends a new tab id not yet in meta", async () => {
+		await manager.saveSession(
+			makeMeta(SID, [{ id: "tab-a" }]),
+			new Map([["tab-a", [makeMessage("user", "A")]]]),
+		);
+
+		await manager.saveTab(
+			SID,
+			makeTab("tab-new"),
+			[makeMessage("user", "NEW")],
+			undefined,
+			fallback("tab-new"),
+		);
+
+		const loaded = manager.loadSession(SID);
+		expect(loaded!.meta.tabs).toHaveLength(2);
+		expect(loaded!.tabMessages.get("tab-a")![0]!.content).toBe("A");
+		expect(loaded!.tabMessages.get("tab-new")![0]!.content).toBe("NEW");
+	});
+
+	it("preserves core.json slots for non-target tabs", async () => {
+		const meta = makeMeta(SID, [{ id: "tab-a" }, { id: "tab-b" }]);
+		await manager.saveSession(
+			meta,
+			new Map([
+				["tab-a", [makeMessage("user", "A")]],
+				["tab-b", [makeMessage("user", "B")]],
+			]),
+			new Map([
+				["tab-a", [{ role: "user", content: "A-core" }]],
+				["tab-b", [{ role: "user", content: "B-core" }]],
+			]),
+		);
+
+		// tab-b saves new core
+		await manager.saveTab(
+			SID,
+			makeTab("tab-b"),
+			[makeMessage("user", "B"), makeMessage("assistant", "B2")],
+			[
+				{ role: "user", content: "B-core" },
+				{ role: "assistant", content: "B-final-core" },
+			],
+			fallback("tab-b"),
+		);
+
+		const loaded = manager.loadSession(SID);
+		expect(loaded!.tabCoreMessages?.get("tab-a")).toHaveLength(1);
+		expect((loaded!.tabCoreMessages!.get("tab-a")![0] as { content: string }).content).toBe(
+			"A-core",
+		);
+		expect(loaded!.tabCoreMessages?.get("tab-b")).toHaveLength(2);
+	});
+});

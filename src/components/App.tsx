@@ -268,6 +268,7 @@ import {
 import type { PrerequisiteStatus } from "../core/setup/prerequisites.js";
 import { getEditedFilesForTab } from "../core/tools/edit-stack.js";
 import { useMCPStore } from "../stores/mcp.js";
+import { getAppSessionId, setAppSessionId } from "../stores/session.js";
 import { MemoryBrowser } from "./modals/MemoryBrowser.js";
 import { DialogHost } from "./ui/DialogHost.js";
 
@@ -719,15 +720,6 @@ export function App({
     activeTabId: tabMgr.activeTabId,
   });
 
-  const getWorkspaceSnapshot = useCallback(
-    (): WorkspaceSnapshot =>
-      workspaceSnapshotRef.current?.() ?? {
-        tabStates: [],
-        activeTabId: "",
-      },
-    [],
-  );
-
   const addSystemMessage = useCallback((msg: string) => {
     const activeChat = tabMgrRef.current?.getActiveChat();
     activeChat?.setMessages((prev: ChatMessage[]) => [
@@ -778,7 +770,7 @@ export function App({
           const snapshot = workspaceSnapshotRef.current?.();
           if (snapshot && hasUserMessages && activeChat) {
             const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-              sessionId: activeChat.sessionId,
+              sessionId: getAppSessionId(),
               title: activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages),
               customTitle: activeChat.customTitle,
               cwd,
@@ -843,6 +835,9 @@ export function App({
       );
       setForgeModeHeader(data.meta.forgeMode);
       setExitSessionId(data.meta.id);
+      // Adopt the loaded session id as the app's id so all subsequent saves
+      // target this dir instead of forking a new one.
+      setAppSessionId(data.meta.id);
       // Restore checkpoint git tags from saved session (synchronous — must run
       // before React renders TabInstance, which triggers syncFromMessages)
       for (const tab of data.meta.tabs) {
@@ -1107,7 +1102,10 @@ export function App({
       const hasContent = chat.messages.some(
         (m: ChatMessage) => m.role === "user" || m.role === "assistant",
       );
-      setExitSessionId(hasContent ? chat.sessionId : null);
+      // Use the app-level session id — every tab persists into the same dir
+      // so the exit banner always points at the right session regardless of
+      // which tab is active.
+      setExitSessionId(hasContent ? getAppSessionId() : null);
     }
   }, [tabMgr.activeTabId]);
 
@@ -1196,7 +1194,7 @@ export function App({
       if (snapshot) {
         try {
           const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-            sessionId: activeChat.sessionId,
+            sessionId: getAppSessionId(),
             title: activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages),
             customTitle: activeChat.customTitle,
             cwd,
@@ -1570,7 +1568,6 @@ export function App({
             anyModalOpen={anyModalOpen}
             bootProviders={providerStatuses}
             bootPrereqs={bootPrereqs}
-            getWorkspaceSnapshot={getWorkspaceSnapshot}
             editorIntegration={effectiveConfig.editorIntegration}
             editorOpen={editorOpen}
             editorFile={editorFile}
@@ -1655,6 +1652,8 @@ export function App({
             );
             setForgeModeHeader(data.meta.forgeMode);
             setExitSessionId(data.meta.id);
+            // Adopt the loaded session id — all future autosaves target this dir.
+            setAppSessionId(data.meta.id);
             // Restore checkpoint git tags from saved session (stashed as _pendingTags
             // so syncFromMessages picks them up when it rebuilds checkpoints)
             for (const tab of data.meta.tabs) {

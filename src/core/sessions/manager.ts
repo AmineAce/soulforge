@@ -452,4 +452,168 @@ export class SessionManager {
   }
 
   private saveChains: Map<string, Promise<void>> = new Map();
+
+  /**
+   * Persist a single tab's slice into the session dir, preserving every other
+   * tab's existing on-disk content. Used by per-tab autosave so concurrent
+   * tabs never overwrite each other's history with a stale snapshot.
+   *
+   * Reads existing meta.json + messages.jsonl + core.json, splices in the new
+   * slice (or appends a new tab entry if missing), recomputes messageRange
+   * offsets, atomically rewrites. Serialized per session id via saveChains.
+   */
+  async saveTab(
+    sessionId: string,
+    tabMeta: TabMeta,
+    messages: ChatMessage[],
+    coreMessages: import("ai").ModelMessage[] | undefined,
+    fallback: {
+      title: string;
+      customTitle?: string | null;
+      cwd: string;
+      forgeMode: import("../../types/index.js").ForgeMode;
+      activeTabId: string;
+    },
+  ): Promise<void> {
+    const prev = this.saveChains.get(sessionId) ?? Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(() => this.doSaveTab(sessionId, tabMeta, messages, coreMessages, fallback));
+    this.saveChains.set(sessionId, next);
+    try {
+      await next;
+    } finally {
+      if (this.saveChains.get(sessionId) === next) {
+        this.saveChains.delete(sessionId);
+      }
+    }
+  }
+
+  private async doSaveTab(
+    sessionId: string,
+    tabMeta: TabMeta,
+    messages: ChatMessage[],
+    coreMessages: import("ai").ModelMessage[] | undefined,
+    fallback: {
+      title: string;
+      customTitle?: string | null;
+      cwd: string;
+      forgeMode: import("../../types/index.js").ForgeMode;
+      activeTabId: string;
+    },
+  ): Promise<void> {
+    this.ensureDir();
+    const sessionDir = join(this.dir, sessionId);
+    if (!existsSync(sessionDir)) {
+      mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+    }
+
+    const metaPath = join(sessionDir, "meta.json");
+    const jsonlPath = join(sessionDir, "messages.jsonl");
+    const corePath = join(sessionDir, "core.json");
+
+    // ── Load existing state (if any) so we splice this tab into the rest ──
+    let existingMeta: SessionMeta | null = null;
+    if (existsSync(metaPath)) {
+      try {
+        existingMeta = JSON.parse(readFileSync(metaPath, "utf-8")) as SessionMeta;
+      } catch {
+        existingMeta = null;
+      }
+    }
+
+    const existingAllMessages: ChatMessage[] = [];
+    if (existsSync(jsonlPath)) {
+      const content = readFileSync(jsonlPath, "utf-8").trim();
+      if (content) {
+        for (const line of content.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            existingAllMessages.push(JSON.parse(line) as ChatMessage);
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+
+    let existingCore: Record<string, import("ai").ModelMessage[]> = {};
+    if (existsSync(corePath)) {
+      try {
+        existingCore = JSON.parse(readFileSync(corePath, "utf-8")) as Record<
+          string,
+          import("ai").ModelMessage[]
+        >;
+      } catch {
+        existingCore = {};
+      }
+    }
+
+    // ── Build tab list: keep existing tabs in order, update/insert this one ──
+    const oldTabs = existingMeta?.tabs ?? [];
+    const tabIdx = oldTabs.findIndex((t) => t.id === tabMeta.id);
+    const updatedTabsRaw: TabMeta[] =
+      tabIdx >= 0 ? oldTabs.map((t, i) => (i === tabIdx ? tabMeta : t)) : [...oldTabs, tabMeta];
+
+    // ── Reassemble messages.jsonl by walking tabs in order ──
+    // Each non-target tab keeps its existing slice (sliced from existingAllMessages
+    // using its prior messageRange). Target tab uses the new messages.
+    const allMessages: ChatMessage[] = [];
+    const updatedTabs: TabMeta[] = updatedTabsRaw.map((t) => {
+      let msgs: ChatMessage[];
+      if (t.id === tabMeta.id) {
+        msgs = messages;
+      } else {
+        const prevRange = t.messageRange;
+        msgs = existingAllMessages.slice(prevRange.startLine, prevRange.endLine);
+      }
+      const startLine = allMessages.length;
+      for (const m of msgs) allMessages.push(m);
+      const endLine = allMessages.length;
+      return { ...t, messageRange: { startLine, endLine } };
+    });
+
+    // ── Merge core.json: replace target tab's slot, keep others ──
+    const updatedCore: Record<string, import("ai").ModelMessage[]> = { ...existingCore };
+    if (coreMessages) {
+      updatedCore[tabMeta.id] = coreMessages;
+    }
+    // Drop entries for tabs no longer in the meta (e.g. closed tabs).
+    for (const k of Object.keys(updatedCore)) {
+      if (!updatedTabs.some((t) => t.id === k)) delete updatedCore[k];
+    }
+
+    const updatedMeta: SessionMeta = {
+      id: sessionId,
+      title: existingMeta?.title ?? fallback.title,
+      ...(existingMeta?.customTitle || fallback.customTitle
+        ? { customTitle: existingMeta?.customTitle ?? fallback.customTitle ?? undefined }
+        : {}),
+      cwd: existingMeta?.cwd ?? fallback.cwd,
+      startedAt: existingMeta?.startedAt ?? allMessages[0]?.timestamp ?? Date.now(),
+      updatedAt: Date.now(),
+      activeTabId: fallback.activeTabId,
+      forgeMode: fallback.forgeMode,
+      tabs: updatedTabs,
+    };
+
+    const lines = allMessages.map((m) => JSON.stringify(m)).join("\n");
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const metaTmp = `${metaPath}.${suffix}.tmp`;
+    const jsonlTmp = `${jsonlPath}.${suffix}.tmp`;
+
+    await writeFile(metaTmp, JSON.stringify(updatedMeta, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    await writeFile(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
+    await rename(jsonlTmp, jsonlPath);
+    await rename(metaTmp, metaPath);
+
+    if (Object.keys(updatedCore).length > 0) {
+      const coreTmp = `${corePath}.${suffix}.tmp`;
+      await writeFile(coreTmp, JSON.stringify(updatedCore), { encoding: "utf-8", mode: 0o600 });
+      await rename(coreTmp, corePath);
+    }
+  }
 }

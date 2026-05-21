@@ -47,7 +47,6 @@ import { resolveTaskModel } from "../core/llm/task-router.js";
 import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
 import { bounceProxy, proxyHealthProbe } from "../core/proxy/lifecycle.js";
 import { resolveRetrySettings } from "../core/retry/settings.js";
-import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { emitCacheReset, onFileEdited } from "../core/tools/file-events.js";
 import { planFileName } from "../core/tools/index.js";
@@ -63,6 +62,7 @@ import { logCompaction } from "../stores/compaction-logs.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { recordModelCall } from "../stores/model-events.js";
 import { useRepoMapStore } from "../stores/repomap.js";
+import { getAppSessionId, setAppSessionId, useSessionStore } from "../stores/session.js";
 import { accumulateModelUsage, useStatusBarStore, ZERO_USAGE } from "../stores/statusbar.js";
 import { useToolsStore } from "../stores/tools.js";
 import type {
@@ -83,7 +83,7 @@ import { compressImageForApi } from "../utils/image-compress.js";
 import { reprimeContextFromMessages, safeParseArgs } from "./chat/message-processing.js";
 import { buildAssistantMessage, hasRenderableAssistantContent } from "./useChat-content.js";
 import { cycleForgeMode } from "./useForgeMode.js";
-import { buildSessionMeta } from "./useSessionBuilder.js";
+import { buildTabMeta } from "./useSessionBuilder.js";
 
 export interface TabState {
   id: string;
@@ -191,7 +191,6 @@ export interface UseChatOptions {
   openEditor: () => void;
   onSuspend: (opts: { command: string; args?: string[]; noAltScreen?: boolean }) => void;
   initialState?: TabState;
-  getWorkspaceSnapshot?: () => WorkspaceSnapshot;
   visible?: boolean;
   /** Called when the active model changes due to a fallback swap. */
   onModelChange?: (modelId: string) => void;
@@ -265,7 +264,6 @@ export function useChat({
   openEditorWithFile,
   openEditor,
   initialState,
-  getWorkspaceSnapshot,
   visible = true,
   onModelChange,
 }: UseChatOptions): ChatInstance {
@@ -537,7 +535,58 @@ export function useChat({
   const [tokenUsage, setTokenUsageRaw] = useState<TokenUsage>(
     initialState?.tokenUsage ?? { ...ZERO_USAGE },
   );
-  const sessionIdRef = useRef<string>(initialState?.sessionId ?? crypto.randomUUID());
+  // App-level session id — single id shared across all tabs in this app
+  // instance. If a tab is restored from disk and its saved sessionId differs
+  // from the current app id, adopt it (covers the resume path where the first
+  // tab to mount carries the on-disk session). All saves target this id.
+  const sessionIdRef = useRef<string>(initialState?.sessionId ?? getAppSessionId());
+  if (initialState?.sessionId && initialState.sessionId !== getAppSessionId()) {
+    setAppSessionId(initialState.sessionId);
+    sessionIdRef.current = initialState.sessionId;
+  }
+  useEffect(() => {
+    const unsub = useSessionStore.subscribe((s) => {
+      sessionIdRef.current = s.appSessionId;
+    });
+    return unsub;
+  }, []);
+
+  // Per-tab autosave — writes ONLY this tab's slice into the shared session
+  // dir. Other tabs' on-disk content is preserved (SessionManager.saveTab
+  // reads + splices). Replaces the old buildSessionMeta+saveSession flow
+  // that captured a global snapshot and could lose stale-render tab data.
+  const persistThisTab = useCallback(
+    (msgs: ChatMessage[], cores: ModelMessage[] | undefined) => {
+      try {
+        const filtered = msgs.filter((m) => m.role !== "system" || m.showInChat);
+        const { tabMeta } = buildTabMeta({
+          tabId,
+          tabLabel: tabLabel ?? "",
+          activeModel: activeModelRef.current,
+          sessionId: sessionIdRef.current,
+          planMode: planModeRef.current,
+          planRequest: planRequestRef.current,
+          coAuthorCommits,
+          forgeMode: forgeModeRef.current,
+          tokenUsage: tokenUsageRef.current,
+          messages: filtered,
+          coreMessages: cores,
+        });
+        sessionManager
+          .saveTab(sessionIdRef.current, tabMeta, filtered, cores, {
+            title: customTitleRef.current ?? SessionManager.deriveTitle(filtered),
+            customTitle: customTitleRef.current,
+            cwd,
+            forgeMode: forgeModeRef.current,
+            activeTabId: tabId,
+          })
+          .catch(() => {});
+      } catch {
+        // Don't let checkpoint failures interrupt the request
+      }
+    },
+    [tabId, tabLabel, cwd, sessionManager, coAuthorCommits],
+  );
   const customTitleRef = useRef<string | null>(null);
   const setCustomTitle = useCallback((title: string | null) => {
     customTitleRef.current = title;
@@ -1665,26 +1714,9 @@ export function useChat({
       };
       setMessages((prev) => {
         const allMsgs = [...prev, userMsg];
-        // Persist immediately after user sends — crash-safe checkpoint
-        queueMicrotask(() => {
-          try {
-            const snapshot = getWorkspaceSnapshot?.();
-            if (!snapshot) return;
-            const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-              sessionId: sessionIdRef.current,
-              title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
-              customTitle: customTitleRef.current,
-              cwd,
-              snapshot,
-              currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
-              currentTabCoreMessages: coreMessagesRef.current,
-            });
-            updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-            sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
-          } catch {
-            // Don't let checkpoint failures interrupt the request
-          }
-        });
+        // Persist immediately after user sends — crash-safe checkpoint.
+        // Per-tab slice write: never touches other tabs' on-disk content.
+        queueMicrotask(() => persistThisTab(allMsgs, coreMessagesRef.current));
         return allMsgs;
       });
 
@@ -2939,8 +2971,6 @@ export function useChat({
                   lastIncrementalSave = Date.now();
                   queueMicrotask(() => {
                     try {
-                      const snapshot = getWorkspaceSnapshot?.();
-                      if (!snapshot) return;
                       const partialMsg: ChatMessage = {
                         id: crypto.randomUUID(),
                         role: "assistant",
@@ -2950,23 +2980,10 @@ export function useChat({
                         segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
                         ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
                       };
+                      // Read current state without mutating — partial is a
+                      // checkpoint, never committed into the messages list.
                       setMessages((prev) => {
-                        const allMsgs = [...prev, partialMsg];
-                        const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-                          sessionId: sessionIdRef.current,
-                          title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
-                          customTitle: customTitleRef.current,
-                          cwd,
-                          snapshot,
-                          currentTabMessages: allMsgs.filter(
-                            (m) => m.role !== "system" || m.showInChat,
-                          ),
-                          currentTabCoreMessages: coreMessagesRef.current,
-                        });
-                        updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-                        sessionManager
-                          .saveSession(meta, tabMessages, tabCoreMessages)
-                          .catch(() => {});
+                        persistThisTab([...prev, partialMsg], coreMessagesRef.current);
                         return prev;
                       });
                     } catch {
@@ -3095,6 +3112,11 @@ export function useChat({
               }
             : null;
 
+          // Capture the final messages list outside setMessages so we can
+          // persist AFTER setCoreMessagesEager has updated coreMessagesRef —
+          // this fixes the race where the saved core.json missed the final
+          // assistant response.
+          let finalMsgsForSave: ChatMessage[] = [];
           setMessages((prev) => {
             const allMsgs = [
               ...prev,
@@ -3102,22 +3124,7 @@ export function useChat({
               ...errorMsgs,
               ...(prematureStopMsg ? [prematureStopMsg] : []),
             ];
-            queueMicrotask(() => {
-              const snapshot = getWorkspaceSnapshot?.();
-              if (snapshot) {
-                const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-                  sessionId: sessionIdRef.current,
-                  title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
-                  customTitle: customTitleRef.current,
-                  cwd,
-                  snapshot,
-                  currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
-                  currentTabCoreMessages: coreMessagesRef.current,
-                });
-                updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-                sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
-              }
-            });
+            finalMsgsForSave = allMsgs;
             // Finalize streaming: flush any remaining text + reasoning + emit turn-done.
             // Individual text-delta / tool-call / tool-result / reasoning-delta events
             // were already streamed during the turn.
@@ -3174,11 +3181,15 @@ export function useChat({
                 // Replace nulls kept for tool pairing with minimal valid content
                 m ?? { role: "assistant" as const, content: "(continued)" },
             );
-          setCoreMessages((prev) => {
+          setCoreMessagesEager((prev) => {
             const updated = [...prev, ...filteredResponseMessages];
             const target = effectiveConfig.contextManagement?.pruningTarget ?? "none";
             return ["main", "both"].includes(target) ? pruneOldToolResults(updated) : updated;
           });
+          // Persist final state — coreMessagesRef is now caught up because
+          // setCoreMessagesEager updates the ref synchronously inside its
+          // reducer. messages was committed inside the setMessages above.
+          persistThisTab(finalMsgsForSave, coreMessagesRef.current);
           streamSegmentsBuffer.current = [];
           liveToolCallsBuffer.current = [];
           lastFlushedSegments.current = [];
@@ -3881,12 +3892,10 @@ export function useChat({
     },
     [
       contextManager,
-      sessionManager,
       interactiveCallbacks,
       cwd,
       flushStreamState,
       queueMicrotaskFlush,
-      getWorkspaceSnapshot,
       setTokenUsage,
       setActivePlan,
       syncV2Slots,
@@ -3896,6 +3905,10 @@ export function useChat({
       tabLabel,
       setForgeMode,
       onModelChange,
+      setCoreMessagesEager, // Persist final state — coreMessagesRef is now caught up because
+      // setCoreMessagesEager updates the ref synchronously inside its
+      // reducer. messages was committed inside the setMessages above.
+      persistThisTab,
     ],
   );
   handleSubmitRef.current = handleSubmit;

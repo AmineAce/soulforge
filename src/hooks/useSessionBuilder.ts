@@ -109,3 +109,70 @@ export function buildSessionMeta({
 
   return { meta, tabMessages, tabCoreMessages };
 }
+/**
+ * Build a single tab's TabMeta + slice — used by per-tab autosave paths so
+ * concurrent tabs don't read each other's snapshot. Pair with
+ * SessionManager.saveTab which preserves all other tabs' on-disk content.
+ */
+export function buildTabMeta(args: {
+  tabId: string;
+  tabLabel: string;
+  activeModel: string;
+  sessionId: string;
+  planMode: boolean;
+  planRequest: string | null;
+  coAuthorCommits: boolean;
+  forgeMode: import("../types/index.js").ForgeMode;
+  tokenUsage: TabMeta["tokenUsage"];
+  messages: ChatMessage[];
+  coreMessages?: ModelMessage[];
+}): { tabMeta: TabMeta; messages: ChatMessage[]; coreMessages?: ModelMessage[] } {
+  const msgs = args.messages.filter((m) => m.role !== "system" || m.showInChat);
+
+  const cpStore = useCheckpointStore.getState();
+  const cpState = cpStore.getCheckpoints(args.tabId);
+  const redoStack = cpStore.getTab(args.tabId).redoStack;
+  const seen = new Set<string>();
+  const checkpointTags: Array<{ index: number; anchorMessageId: string; gitTag: string }> = [];
+  for (const cp of cpState) {
+    if (cp.gitTag && !seen.has(cp.gitTag)) {
+      seen.add(cp.gitTag);
+      checkpointTags.push({
+        index: cp.index,
+        anchorMessageId: cp.anchorMessageId,
+        gitTag: cp.gitTag,
+      });
+    }
+  }
+  for (const entry of redoStack) {
+    const cp = entry.checkpoint;
+    if (cp.gitTag && !seen.has(cp.gitTag)) {
+      seen.add(cp.gitTag);
+      checkpointTags.push({
+        index: cp.index,
+        anchorMessageId: cp.anchorMessageId,
+        gitTag: cp.gitTag,
+      });
+    }
+  }
+
+  const uiSnapshot = useUIStore.getState();
+  const verboseForTab = uiSnapshot.verboseByTab[args.tabId];
+
+  const tabMeta: TabMeta = {
+    id: args.tabId,
+    label: args.tabLabel,
+    activeModel: args.activeModel,
+    sessionId: args.sessionId,
+    planMode: args.planMode,
+    planRequest: args.planRequest,
+    coAuthorCommits: args.coAuthorCommits,
+    forgeMode: args.forgeMode,
+    tokenUsage: args.tokenUsage,
+    messageRange: { startLine: 0, endLine: msgs.length },
+    ...(checkpointTags.length > 0 ? { checkpointTags } : {}),
+    ...(verboseForTab !== undefined ? { verbose: verboseForTab } : {}),
+  };
+
+  return { tabMeta, messages: msgs, coreMessages: args.coreMessages };
+}
