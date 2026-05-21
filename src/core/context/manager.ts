@@ -340,7 +340,11 @@ export class ContextManager {
         this.repoMapGeneration++;
         this.syncRepoMapStore("ready");
         useRepoMapStore.getState().setScanError("");
-        const current = this.repoMap.getSemanticMode();
+        // A pending mode means setSemanticSummaries was called while the scan
+        // was still in flight (fast cached startup races config-sync writes).
+        // Re-applying it now drives the UI past the "waiting for soul map" stub.
+        const pending = this.pendingSemanticMode;
+        const current = pending ?? this.repoMap.getSemanticMode();
         let semanticTask: Promise<unknown>;
         if (current !== "off") {
           semanticTask = this.setSemanticSummaries(current);
@@ -735,16 +739,23 @@ export class ContextManager {
       store.setSemanticCount(0);
       store.setSemanticProgress("");
       store.setSemanticModel("");
+      this.pendingSemanticMode = null;
       return;
     }
     store.setSemanticModel("");
 
     if (!this.repoMapReady) {
+      // Queue the mode for re-application once the scan completes. onScanComplete
+      // re-invokes setSemanticSummaries with this value, so the UI doesn't get
+      // stuck on "waiting for soul map" when a late config-sync write races
+      // a fast cached startup.
+      this.pendingSemanticMode = mode;
       store.setSemanticStatus("generating");
       store.setSemanticProgress(`${mode} — waiting for soul map...`);
       return;
     }
 
+    this.pendingSemanticMode = null;
     store.setSemanticStatus("generating");
     store.setSemanticProgress("generating summaries...");
     const genTasks: Promise<unknown>[] = [this.repoMap.generateAstSummaries()];
@@ -1648,6 +1659,8 @@ export class ContextManager {
     this.resetForCompaction();
     return true;
   }
+
+  private pendingSemanticMode: "ast" | "synthetic" | "llm" | "full" | "on" | null = null;
 }
 
 export { extractConversationTerms } from "./conversation-terms.js";
