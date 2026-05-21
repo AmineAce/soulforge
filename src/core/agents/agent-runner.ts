@@ -3,8 +3,8 @@ import { type LanguageModel, RetryError } from "ai";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { TaskTier } from "../../types/index.js";
 import { getActiveProviderId } from "../llm/provider.js";
+import { getSurfacedHintIds, runInSubagentScope } from "../memory/hints.js";
 import { bounceProxy, proxyHealthProbe } from "../proxy/lifecycle.js";
-
 import { taskListTool } from "../tools/task-list.js";
 import {
   type AgentBus,
@@ -415,7 +415,10 @@ export async function runAgentTask(
               ...callbacks,
             };
 
-        result = await agent.generate(generateArgs);
+        // Subagent-scoped memory hints — only gotcha-with-path passes,
+        // budget is per-agent (3), parent's surfaced IDs seed dedup.
+        const parentSurfaced = getSurfacedHintIds();
+        result = await runInSubagentScope(parentSurfaced, () => agent.generate(generateArgs));
       } catch (genErr: unknown) {
         // Recover steps from error or callback accumulator so we can
         // synthesize results even when the agent errors mid-run.

@@ -19,25 +19,35 @@
  * All helpers swallow errors via reportHintError and never throw — a memory
  * failure can never crash a tool result.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { MemoryManager } from "./manager.js";
 import type { MemoryCategory } from "./types.js";
 
 let _manager: MemoryManager | null = null;
-/** IDs surfaced in the active turn — cleared on resetSurfacedHints(). */
+/** Parent-scope state — used when no subagent ALS context is active. */
 const _surfacedThisTurn = new Set<string>();
-/** IDs surfaced earlier in the session with the turn-number stamp. */
 const _surfacedRecently = new Map<string, number>();
 let _turnCounter = 0;
 let _sessionBudgetUsed = 0;
-/** True after the agent ran memory(search|get|list) — suppress further hints this turn. */
 let _agentActedThisTurn = false;
-/** Subagent mode — only gotcha-with-path-match passes through. */
-let _subagentMode = false;
+
+/**
+ * Per-subagent state lives in AsyncLocalStorage so concurrent agents can't
+ * race on a module-level flag. When set, this fully replaces parent state
+ * for the duration of the agent's run.
+ */
+interface SubagentHintScope {
+  surfaced: Set<string>;
+  acted: boolean;
+  budgetUsed: number;
+}
+const _scope = new AsyncLocalStorage<SubagentHintScope>();
 
 const SUMMARY_MAX = 60;
 const COOLDOWN_TURNS = 10;
 const SESSION_BUDGET = 15;
+const SUBAGENT_BUDGET = 3;
 
 export function setMemoryHintProvider(manager: MemoryManager | null): void {
   _manager = manager;
@@ -48,7 +58,6 @@ export function resetSurfacedHints(): void {
   _surfacedThisTurn.clear();
   _agentActedThisTurn = false;
   _turnCounter++;
-  // GC cooldown map of entries older than COOLDOWN_TURNS turns.
   for (const [id, turn] of _surfacedRecently) {
     if (_turnCounter - turn > COOLDOWN_TURNS) _surfacedRecently.delete(id);
   }
@@ -61,27 +70,66 @@ export function resetSurfacedHintsHard(): void {
   _agentActedThisTurn = false;
   _sessionBudgetUsed = 0;
   _turnCounter = 0;
-  _subagentMode = false;
 }
 
 /** Mark that the agent ran a memory action this turn — suppress further hints. */
 export function markMemoryAction(): void {
+  const s = _scope.getStore();
+  if (s) {
+    s.acted = true;
+    return;
+  }
   _agentActedThisTurn = true;
-}
-
-/** Enter/exit subagent mode — only gotcha-with-path passes through when true. */
-export function setSubagentMode(enabled: boolean): void {
-  _subagentMode = enabled;
-}
-
-/** Seed the per-turn dedup set with parent's already-surfaced IDs. */
-export function setSurfacedHintBaseline(ids: readonly string[]): void {
-  for (const id of ids) _surfacedThisTurn.add(id);
 }
 
 /** Snapshot IDs surfaced so far — for passing to subagents. */
 export function getSurfacedHintIds(): string[] {
+  const s = _scope.getStore();
+  if (s) return [...s.surfaced];
   return [...new Set([..._surfacedThisTurn, ..._surfacedRecently.keys()])];
+}
+
+/**
+ * Run `fn` inside a subagent-scoped hint context. Concurrent agents each get
+ * their own scope — no module-level race. Parent IDs seed the dedup set so
+ * the subagent never re-surfaces what the parent already saw. Only
+ * gotcha-with-path-match passes through (see passesSubagentGate). Budget is
+ * SUBAGENT_BUDGET (3) per agent, independent of the parent session budget.
+ */
+export function runInSubagentScope<T>(parentSurfacedIds: readonly string[], fn: () => T): T {
+  const scope: SubagentHintScope = {
+    surfaced: new Set(parentSurfacedIds),
+    acted: false,
+    budgetUsed: 0,
+  };
+  return _scope.run(scope, fn);
+}
+
+/** True while running inside runInSubagentScope. */
+function inSubagentScope(): boolean {
+  return _scope.getStore() != null;
+}
+
+/** Mutable accessors that respect the active scope (subagent or parent). */
+function getSurfacedSet(): Set<string> {
+  return _scope.getStore()?.surfaced ?? _surfacedThisTurn;
+}
+function getActed(): boolean {
+  return _scope.getStore()?.acted ?? _agentActedThisTurn;
+}
+function bumpBudget(): void {
+  const s = _scope.getStore();
+  if (s) {
+    s.budgetUsed++;
+    return;
+  }
+  _sessionBudgetUsed++;
+}
+function budgetUsed(): number {
+  return _scope.getStore()?.budgetUsed ?? _sessionBudgetUsed;
+}
+function budgetLimit(): number {
+  return _scope.getStore() ? SUBAGENT_BUDGET : SESSION_BUDGET;
 }
 
 function reportHintError(scope: string, err: unknown): void {
@@ -163,7 +211,7 @@ function passesSubagentGate(top: TopCandidate | null): boolean {
 
 /** Budget gate — past budget, only gotcha/pinned slip through. */
 function passesBudgetGate(top: TopCandidate | null): boolean {
-  if (_sessionBudgetUsed < SESSION_BUDGET) return true;
+  if (budgetUsed() < budgetLimit()) return true;
   if (!top) return false;
   return top.pinned || top.category === "gotcha";
 }
@@ -179,25 +227,26 @@ function passesBudgetGate(top: TopCandidate | null): boolean {
 function buildHintLine(top: TopCandidate | null, total: number, ctx: HintContext): string {
   if (total <= 0) return "";
   if (isLateContext(ctx)) return "";
-  if (_agentActedThisTurn) return "";
-  if (_subagentMode && !passesSubagentGate(top)) return "";
+  if (getActed()) return "";
+  if (inSubagentScope() && !passesSubagentGate(top)) return "";
   if (!passesBudgetGate(top)) return "";
   if (!passesQualityGate(top, total)) return "";
 
+  const surfaced = getSurfacedSet();
+
   // Top already shown — collapse to a volume hint only if multi-match.
-  if (top && (_surfacedThisTurn.has(top.id) || _surfacedRecently.has(top.id))) {
+  if (top && (surfaced.has(top.id) || (!inSubagentScope() && _surfacedRecently.has(top.id)))) {
     if (total < 3) return "";
     return `\n· ${String(total)} memories — memory(search) recommended`;
   }
 
   if (!top) {
-    // Volume-only fallback. Always imperative — agent should search.
     return `\n· ${String(total)} memories — memory(search) recommended`;
   }
 
-  _surfacedThisTurn.add(top.id);
-  _surfacedRecently.set(top.id, _turnCounter);
-  _sessionBudgetUsed++;
+  surfaced.add(top.id);
+  if (!inSubagentScope()) _surfacedRecently.set(top.id, _turnCounter);
+  bumpBudget();
 
   const id8 = top.id.slice(0, 8);
   const summary = truncateSummary(top.summary);
