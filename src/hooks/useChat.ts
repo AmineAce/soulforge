@@ -48,7 +48,7 @@ import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
 import { bounceProxy, proxyHealthProbe } from "../core/proxy/lifecycle.js";
 import { resolveRetrySettings } from "../core/retry/settings.js";
 import { SessionManager } from "../core/sessions/manager.js";
-import { emitCacheReset, onFileEdited } from "../core/tools/file-events.js";
+import { emitCacheReset, onFileEdited, runWithEditOrigin } from "../core/tools/file-events.js";
 import { planFileName } from "../core/tools/index.js";
 import { setShellCoAuthorEnabled } from "../core/tools/shell.js";
 import {
@@ -2350,11 +2350,15 @@ export function useChat({
                         tabLabel,
                       });
                     })();
-              result = (await currentAgent.stream({
-                messages: newCoreMessages,
-                abortSignal: abortController.signal,
-                options: { userMessage: input },
-              })) as unknown as StreamTextResult<ToolSet, never>;
+              result = (await runWithEditOrigin(
+                { tabId: tabId ?? null, agentId: null, agentLabel: null },
+                () =>
+                  currentAgent.stream({
+                    messages: newCoreMessages,
+                    abortSignal: abortController.signal,
+                    options: { userMessage: input },
+                  }),
+              )) as unknown as StreamTextResult<ToolSet, never>;
               break;
             } catch (err: unknown) {
               if (!isProviderOptionsError(err) || degradeLevel === 2) throw err;

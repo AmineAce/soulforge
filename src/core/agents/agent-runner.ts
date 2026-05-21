@@ -39,6 +39,7 @@ export function getMaxConcurrentAgents(): number {
 }
 
 import { recordModelCall } from "../../stores/model-events.js";
+import { runWithEditOrigin } from "../tools/file-events.js";
 import { getToolTimeoutMs } from "../tools/tool-timeout.js";
 
 /** 0 = no timeout (for generate calls). For waitForAgent, use getAgentWaitMs(). */
@@ -422,7 +423,15 @@ export async function runAgentTask(
         const parentSurfaced = getSurfacedHintIds(parentTabId);
         result = await runInSubagentScope(
           parentSurfaced,
-          () => agent.generate(generateArgs),
+          () =>
+            runWithEditOrigin(
+              {
+                tabId: parentTabId ?? null,
+                agentId: task.agentId,
+                agentLabel: task.task ? task.task.slice(0, 32) : task.agentId,
+              },
+              () => agent.generate(generateArgs),
+            ),
           parentTabId,
         );
       } catch (genErr: unknown) {

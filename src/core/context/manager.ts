@@ -310,8 +310,25 @@ export class ContextManager {
   private unsubRead: (() => void) | null = null;
 
   private wireFileEventHandlers(): void {
-    this.unsubEdit = onFileEdited((absPath) => {
+    this.unsubEdit = onFileEdited((absPath, _content, origin) => {
       this.recallEditEpoch++;
+      // Foreign edit = produced by another tab or a subagent. We use this
+      // signal to decide whether the next delta should render a session
+      // header — self-only edits don't need one since the model just made
+      // them; cross-tab / subagent edits do, so the parent learns who.
+      if (origin) {
+        const sameTab = origin.tabId && this.tabId && origin.tabId === this.tabId;
+        const isSubagent = !!origin.agentId;
+        if (!sameTab || isSubagent) {
+          const rel = absPath.startsWith(`${this.cwd}/`)
+            ? absPath.slice(this.cwd.length + 1)
+            : absPath;
+          this.foreignEditOrigins.set(rel, {
+            tabId: origin.tabId ?? null,
+            agentLabel: origin.agentLabel ?? origin.agentId ?? null,
+          });
+        }
+      }
       this.onFileChanged(absPath);
     });
     this.unsubRead = onFileRead((absPath) => this.trackMentionedFile(absPath));
@@ -608,6 +625,10 @@ export class ContextManager {
    * message stream is a fresh prefix from the model's perspective.
    */
   resetForCompaction(): void {
+    // Mark next delta as post-compaction so the session header is rendered
+    // even when the agent itself produced all the edits — the prompt prefix
+    // was just rewritten and orientation is genuinely useful again.
+    this.postCompactionPending = true;
     this.recallCache = null;
     resetSurfacedHints(this.tabId ?? undefined);
     if (this.repoMapCache) this.repoMapCache.at = 0;
@@ -1401,6 +1422,7 @@ export class ContextManager {
     this.lastEmittedSoulMapDiff = null;
     this.soulMapNewFilesEmitted.clear();
     this.recentToolFailures.length = 0;
+    this.foreignEditOrigins.clear();
   }
 
   private pendingSoulMapDiff: string | null = null;
@@ -1432,16 +1454,35 @@ export class ContextManager {
         .map(([path]) => path);
       const hasSnapshot = this.soulMapSnapshotPaths.size > 0;
       const lines = ["<soul_map_update>"];
-      // Session header — orientation glance at the start of every delta.
-      // Edited count is the session-cumulative number of unique files edited
-      // since snapshot freeze. Hot files = top-3 by recent edit sequence.
-      if (this.editedFiles.size > 0) {
+      // Session header — only when it carries non-redundant information.
+      // Skipped when every recorded edit originated from this agent in this
+      // turn (the model just made them — no orientation needed). Rendered
+      // when:
+      //   - foreign edits exist (cross-tab or subagent contributed), OR
+      //   - we're post-compaction (the prefix was just rewritten),
+      // with explicit cause + origin breakdown so the reader knows WHY they
+      // need orientation.
+      const hasForeign = this.foreignEditOrigins.size > 0;
+      const postCompaction = this.postCompactionPending;
+      if (this.editedFiles.size > 0 && (hasForeign || postCompaction)) {
         const hotFiles = [...this.soulMapDiffChangedFiles.entries()]
           .sort((a, b) => b[1] - a[1])
           .slice(0, 3)
           .map(([p]) => p.split("/").pop() ?? p);
         const hot = hotFiles.length > 0 ? ` (hot: ${hotFiles.join(", ")})` : "";
-        lines.push(`# session: ${String(this.editedFiles.size)} files edited${hot}`);
+        const causes: string[] = [];
+        if (postCompaction) causes.push("post-compaction");
+        if (hasForeign) {
+          const labels = new Set<string>();
+          for (const o of this.foreignEditOrigins.values()) {
+            if (o.agentLabel) labels.add(`subagent ${o.agentLabel}`);
+            else if (o.tabId && o.tabId !== this.tabId) labels.add(`tab ${o.tabId.slice(0, 8)}`);
+          }
+          if (labels.size > 0) causes.push([...labels].sort().join(", "));
+          else causes.push("foreign edits");
+        }
+        const causeTag = causes.length > 0 ? ` — ${causes.join("; ")}` : "";
+        lines.push(`# session: ${String(this.editedFiles.size)} files edited${hot}${causeTag}`);
       }
       const MAX_RICH_BLOCKS = 5;
       let richBlockCount = 0;
@@ -1534,6 +1575,10 @@ export class ContextManager {
       }
       this.lastEmittedSoulMapDiff = this.pendingSoulMapDiff;
       this.pendingSoulMapDiff = null;
+      // Header causes are turn-scoped — once emitted, future deltas in the
+      // same TTL window shouldn't re-announce them.
+      this.postCompactionPending = false;
+      this.foreignEditOrigins.clear();
     }
   }
 
@@ -1821,6 +1866,10 @@ export class ContextManager {
       }
     }
   }
+
+  private foreignEditOrigins: Map<string, { tabId: string | null; agentLabel: string | null }> =
+    new Map();
+  private postCompactionPending = false;
 }
 
 export { extractConversationTerms } from "./conversation-terms.js";
