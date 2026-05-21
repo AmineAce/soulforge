@@ -2205,7 +2205,7 @@ export class RepoMap {
     return result;
   }
 
-  private getEntryPoints(): string[] {
+  getEntryPoints(): string[] {
     if (this.entryPointsCache !== null) return this.entryPointsCache;
     this.entryPointsCache = [];
     try {

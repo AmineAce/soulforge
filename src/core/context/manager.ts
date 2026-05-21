@@ -643,6 +643,9 @@ export class ContextManager {
   private async warmRepoMapCache(): Promise<void> {
     if (this.repoMapRefreshing) return;
     this.repoMapRefreshing = true;
+    // Warm entry-points cache so renderSnapshotContent can include them
+    // synchronously without forcing the snapshot path through async.
+    this.repoMap.getEntryPoints().catch(() => {});
     try {
       const result = await this.repoMap.render({
         editorFile: this.editorFile,
@@ -1386,7 +1389,8 @@ export class ContextManager {
     const isMinimal = this.contextWindowTokens <= 32_000;
     const treeLimit = this.repoMapTokenBudget ? Math.ceil(this.repoMapTokenBudget / 100) : 60;
     const dirTree = buildDirectoryTree(this.cwd, treeLimit);
-    return buildSoulMapContent(rendered, isMinimal, dirTree);
+    const entryPoints = this.repoMap.getEntryPointsCached();
+    return buildSoulMapContent(rendered, isMinimal, dirTree, entryPoints);
   }
 
   private clearDeltaState(): void {
@@ -1428,6 +1432,17 @@ export class ContextManager {
         .map(([path]) => path);
       const hasSnapshot = this.soulMapSnapshotPaths.size > 0;
       const lines = ["<soul_map_update>"];
+      // Session header — orientation glance at the start of every delta.
+      // Edited count is the session-cumulative number of unique files edited
+      // since snapshot freeze. Hot files = top-3 by recent edit sequence.
+      if (this.editedFiles.size > 0) {
+        const hotFiles = [...this.soulMapDiffChangedFiles.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([p]) => p.split("/").pop() ?? p);
+        const hot = hotFiles.length > 0 ? ` (hot: ${hotFiles.join(", ")})` : "";
+        lines.push(`# session: ${String(this.editedFiles.size)} files edited${hot}`);
+      }
       const MAX_RICH_BLOCKS = 5;
       let richBlockCount = 0;
 

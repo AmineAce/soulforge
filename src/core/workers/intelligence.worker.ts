@@ -146,6 +146,8 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
   onFileChanged: (absPath: unknown) => requireRepoMap().onFileChanged(absPath as string),
   recheckModifiedFiles: () => requireRepoMap().recheckModifiedFiles(),
 
+  getEntryPoints: () => requireRepoMap().getEntryPoints(),
+
   // ── Render ──
   render: (opts: unknown) => {
     const repoMap = requireRepoMap();

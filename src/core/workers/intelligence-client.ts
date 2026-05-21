@@ -880,4 +880,17 @@ export class IntelligenceClient extends WorkerClient {
   async routerRunHealthCheck(): Promise<HealthCheckResult> {
     return this.call("routerRunHealthCheck");
   }
+
+  private _entryPointsCache: string[] | null = null;
+
+  async getEntryPoints(): Promise<string[]> {
+    if (this._entryPointsCache) return this._entryPointsCache;
+    const result = await this.call<string[]>("getEntryPoints");
+    this._entryPointsCache = result;
+    return result;
+  }
+
+  getEntryPointsCached(): string[] {
+    return this._entryPointsCache ?? [];
+  }
 }

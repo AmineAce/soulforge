@@ -79,13 +79,18 @@ export function buildSoulMapUserMessage(
   rendered: string,
   isMinimal: boolean,
   dirTree?: string | null,
+  entryPoints?: string[] | null,
 ): string {
   const legend = isMinimal ? "" : LEGEND;
   const treeSection = dirTree ? `\n<directory_tree>\n${dirTree}\n</directory_tree>\n` : "";
+  const entrySection =
+    entryPoints && entryPoints.length > 0
+      ? `\n<entry_points>\n${entryPoints.slice(0, 8).join("\n")}\n</entry_points>\n`
+      : "";
   return (
     `<soul_map>\n` +
     `<description>\n${SOUL_MAP_DESCRIPTION}\n</description>\n\n` +
-    `<how_to_use>\n${SOUL_MAP_USAGE}\n</how_to_use>\n${treeSection}\n` +
+    `<how_to_use>\n${SOUL_MAP_USAGE}\n</how_to_use>\n${treeSection}${entrySection}\n` +
     `<data>\n${legend}${rendered}\n</data>\n` +
     `</soul_map>`
   );
