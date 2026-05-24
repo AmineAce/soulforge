@@ -345,6 +345,95 @@ describe("sanitizeMessages", () => {
     expect(result[0]).toBe(messages[0]);
     expect(result[1]).toBe(messages[1]);
   });
+
+  it("drops orphan provider-executed tool-call with no matching tool-result", () => {
+    const messages = [
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "running it" },
+          {
+            type: "tool-call" as const,
+            toolCallId: "srvtoolu_01",
+            toolName: "bash_code_execution",
+            input: { command: "ls" },
+            providerExecuted: true,
+          },
+          // No matching tool-result — stream was cancelled before it arrived.
+        ],
+      },
+    ] as unknown as Parameters<typeof sanitizeMessages>[0];
+    const result = sanitizeMessages(messages);
+    expect(result).not.toBe(messages);
+    const content = (result[0] as { content: Array<{ type: string }> }).content;
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+  });
+
+  it("keeps provider-executed tool-call with matching tool-result", () => {
+    const messages = [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "srvtoolu_02",
+            toolName: "bash_code_execution",
+            input: { command: "ls" },
+            providerExecuted: true,
+          },
+          {
+            type: "tool-result" as const,
+            toolCallId: "srvtoolu_02",
+            toolName: "bash_code_execution",
+            output: { type: "text" as const, value: "ok" },
+          },
+        ],
+      },
+    ] as unknown as Parameters<typeof sanitizeMessages>[0];
+    const result = sanitizeMessages(messages);
+    expect(result).toBe(messages);
+  });
+
+  it("drops orphan tool-result with no matching provider-executed tool-call", () => {
+    const messages = [
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "done" },
+          {
+            type: "tool-result" as const,
+            toolCallId: "srvtoolu_99",
+            toolName: "bash_code_execution",
+            output: { type: "text" as const, value: "stray" },
+          },
+        ],
+      },
+    ] as unknown as Parameters<typeof sanitizeMessages>[0];
+    const result = sanitizeMessages(messages);
+    expect(result).not.toBe(messages);
+    const content = (result[0] as { content: Array<{ type: string }> }).content;
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+  });
+
+  it("non-provider-executed tool-call without result is preserved (client tool — result lives in next user msg)", () => {
+    const messages = [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "client_1",
+            toolName: "read",
+            input: { path: "a.ts" },
+          },
+        ],
+      },
+    ] as unknown as Parameters<typeof sanitizeMessages>[0];
+    const result = sanitizeMessages(messages);
+    expect(result).toBe(messages);
+  });
 });
 
 describe("sanitizeToolInputsStep", () => {

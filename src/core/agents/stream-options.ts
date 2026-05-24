@@ -3,16 +3,22 @@ import type { ModelMessage } from "ai";
 import { jsonrepair } from "jsonrepair";
 
 /**
- * Sanitize tool-call inputs in messages to prevent Anthropic API rejections.
+ * Sanitize messages for Anthropic API replay.
  *
- * When the model generates malformed tool call args (unparseable JSON or non-object
- * JSON like a string/array/number), the AI SDK stores the raw value as `input` and
- * marks the call `invalid: true`. On the next step, the SDK replays these tool_use
- * blocks as-is. The Anthropic API requires `tool_use.input` to be a dictionary —
- * sending a raw string or array causes:
- *   "messages.N.content.M.tool_use.input: Input should be a valid dictionary"
+ * 1. Tool-call inputs: when the model generates malformed args (unparseable JSON or
+ *    a non-object like a string/array/number), the AI SDK stores the raw value as
+ *    `input` and marks the call `invalid`. Anthropic requires `tool_use.input` to be
+ *    a dictionary, otherwise:
+ *      "messages.N.content.M.tool_use.input: Input should be a valid dictionary"
  *
- * This prepareStep hook ensures all tool-call inputs are plain objects.
+ * 2. Orphan server-tool blocks: Anthropic's server-side tools (bash_code_execution,
+ *    code_execution, web_fetch, web_search) emit BOTH the tool_use and matching
+ *    tool_result inline on the SAME assistant message. If the stream is cancelled
+ *    or errors before the result block arrives, the assistant message contains a
+ *    provider-executed tool_use with no paired tool_result. On replay Anthropic
+ *    rejects with:
+ *      "tool use ... was found without a corresponding tool_result block"
+ *    We drop the unpaired tool_use (and any orphan tool_result) here.
  */
 export function sanitizeMessages(messages: ModelMessage[]): ModelMessage[] {
   let dirty = false;
@@ -20,14 +26,55 @@ export function sanitizeMessages(messages: ModelMessage[]): ModelMessage[] {
     if (msg.role !== "assistant" || typeof msg.content === "string") return msg;
     if (!Array.isArray(msg.content)) return msg;
 
+    // Pass 1: collect provider-executed tool-call IDs and tool-result IDs in this
+    // assistant message. Anthropic's server tools (bash_code_execution, code_execution,
+    // web_fetch, web_search) emit BOTH the tool_use and the tool_result inline on the
+    // same assistant message. If the stream was cancelled / errored before the result
+    // streamed in, we end up with an orphan tool_use → Anthropic rejects the next
+    // request with "tool_use without corresponding tool_result block".
+    const providerToolCallIds = new Set<string>();
+    const toolResultIds = new Set<string>();
+    for (const part of msg.content) {
+      // biome-ignore lint/suspicious/noExplicitAny: SDK part union is narrow but providerExecuted is structural
+      const p = part as any;
+      if (
+        p?.type === "tool-call" &&
+        p.providerExecuted === true &&
+        typeof p.toolCallId === "string"
+      ) {
+        providerToolCallIds.add(p.toolCallId);
+      } else if (p?.type === "tool-result" && typeof p.toolCallId === "string") {
+        toolResultIds.add(p.toolCallId);
+      }
+    }
+    const hasOrphans =
+      [...providerToolCallIds].some((id) => !toolResultIds.has(id)) ||
+      [...toolResultIds].some((id) => !providerToolCallIds.has(id));
+
     let contentDirty = false;
-    const content = msg.content.map((part) => {
+    let content = msg.content.map((part) => {
       if (part.type !== "tool-call") return part;
       const input = part.input;
       if (typeof input === "object" && input !== null && !Array.isArray(input)) return part;
       contentDirty = true;
       return { ...part, input: {} };
     });
+
+    if (hasOrphans) {
+      const before = content.length;
+      content = content.filter((part) => {
+        // biome-ignore lint/suspicious/noExplicitAny: structural check
+        const p = part as any;
+        if (p?.type === "tool-call" && p.providerExecuted === true) {
+          return toolResultIds.has(p.toolCallId);
+        }
+        if (p?.type === "tool-result") {
+          return providerToolCallIds.has(p.toolCallId);
+        }
+        return true;
+      });
+      if (content.length !== before) contentDirty = true;
+    }
 
     if (!contentDirty) return msg;
     dirty = true;
