@@ -1,3 +1,5 @@
+import { isAddonInstalled } from "../setup/addons.js";
+
 /** Core tools — always exposed to the model (schemas sent on every API call).
  *  Keep this minimal — every extra schema adds ~300 tokens per API roundtrip. */
 export const CORE_TOOL_NAMES: string[] = [
@@ -11,7 +13,8 @@ export const CORE_TOOL_NAMES: string[] = [
   "memory",
 ];
 
-/** Tool catalog — name + one-liner for all tools. Used by /tools popup and request_tools listing. */
+/** Tool catalog — name + one-liner for all tools. Used by /tools popup and request_tools listing.
+ *  Frozen at module load. Use `getToolCatalog()` for the live, addon-aware view. */
 export const TOOL_CATALOG: Record<string, string> = {
   request_tools: "Let the agent load tools on demand (saves ~300 tokens/tool/call)",
   release_tools: "Let the agent unload tools it no longer needs",
@@ -49,6 +52,28 @@ export const TOOL_CATALOG: Record<string, string> = {
   task_list: "Create and track tasks for the current session",
   ast_edit: "Surgical AST editing for TS/JS — prefer over edit_file/multi_edit",
 };
+
+/** Tools gated on addon presence — hidden from /tools, catalog, and tool listings when missing. */
+const ADDON_GATED_TOOLS: Record<string, () => boolean> = {
+  editor: () => isAddonInstalled("neovim"),
+};
+
+/** Live view of the catalog filtered by addon availability. Re-evaluates on every call. */
+export function getToolCatalog(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, desc] of Object.entries(TOOL_CATALOG)) {
+    const gate = ADDON_GATED_TOOLS[name];
+    if (gate && !gate()) continue;
+    out[name] = desc;
+  }
+  return out;
+}
+
+/** True when the named tool is currently available given installed addons. */
+export function isToolAvailable(name: string): boolean {
+  const gate = ADDON_GATED_TOOLS[name];
+  return gate ? gate() : true;
+}
 
 /** Tool names allowed in restricted modes (architect, socratic, challenge).
  *  Read/analysis + memory + editor read — NO edit/shell/git/refactor.

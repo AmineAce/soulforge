@@ -410,6 +410,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Proxy — status, install, start, stop, restart, login, upgrade",
     category: "Models",
     tags: ["account", "login", "logout", "install", "upgrade", "start", "stop", "restart"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy install",
@@ -714,6 +715,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Toggle editor/LSP integrations",
     category: "Editor",
     tags: ["config", "lsp"],
+    hidden: () => !hasNvim(),
   },
   {
     cmd: "/editor split",

@@ -44,6 +44,7 @@ import {
   sanitizeMessages,
 } from "./stream-options.js";
 import { buildSubagentTools, type SharedCacheRef } from "./subagent-tools.js";
+import { isToolAvailable } from "../tools/constants.js";
 
 /** Per-tool-call-part signature cache for loop detection. Tool-call inputs are
  *  immutable; the part object is reused across prepareStep invocations as
@@ -897,10 +898,13 @@ export function createForgeAgent({
   const coreSet = activeDeferredTools ? new Set(CORE_TOOL_NAMES) : undefined;
 
   const computeActiveTools = (): (keyof typeof allTools)[] | undefined => {
-    if (isRestricted) return allToolNames.filter((name) => restrictedSet.has(name));
-    if (planExecution) return allToolNames.filter((name) => planExecSet.has(name));
+    // Strip addon-gated tools globally (e.g. `editor` when neovim addon absent).
+    const addonFiltered = allToolNames.filter((name) => isToolAvailable(name as string));
 
-    let names = allToolNames;
+    if (isRestricted) return addonFiltered.filter((name) => restrictedSet.has(name));
+    if (planExecution) return addonFiltered.filter((name) => planExecSet.has(name));
+
+    let names = addonFiltered;
 
     // Agent-managed mode: only expose core tools + explicitly requested deferred tools
     if (activeDeferredTools && coreSet) {

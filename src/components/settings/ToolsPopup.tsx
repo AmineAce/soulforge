@@ -1,6 +1,6 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useState } from "react";
-import { TOOL_CATALOG } from "../../core/tools/constants.js";
+import { getToolCatalog } from "../../core/tools/constants.js";
 import {
   buildGroupedRows,
   type GroupedItem,
@@ -26,6 +26,10 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
   const { width: tw, height: th } = useTerminalDimensions();
   const [cursor, setCursor] = useState(0);
 
+  // Live catalog — hides addon-gated tools (e.g. `editor`) when the addon is missing.
+  // Re-evaluated each render so installing/removing an addon updates the popup without restart.
+  const catalog = useMemo(() => getToolCatalog(), [visible]);
+
   useEffect(() => {
     if (visible) setCursor(0);
   }, [visible]);
@@ -40,7 +44,7 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
         id: "tools",
         label: "Tools",
         hideHeader: true,
-        items: Object.entries(TOOL_CATALOG).map(([name, desc]) => ({
+        items: Object.entries(catalog).map(([name, desc]) => ({
           id: name,
           toolName: name,
           label: name,
@@ -49,7 +53,7 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
         })),
       },
     ];
-  }, [disabledTools]);
+  }, [disabledTools, catalog]);
 
   const rows = useMemo(() => buildGroupedRows(groups, new Set(["tools"])), [groups]);
 
@@ -74,8 +78,8 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
 
   if (!visible) return null;
 
-  const enabled = Object.keys(TOOL_CATALOG).filter((n) => !disabledTools.has(n)).length;
-  const total = Object.keys(TOOL_CATALOG).length;
+  const enabled = Object.keys(catalog).filter((n) => !disabledTools.has(n)).length;
+  const total = Object.keys(catalog).length;
 
   return (
     <PremiumPopup

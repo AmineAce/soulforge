@@ -21,7 +21,7 @@ import { needsOutsideConfirm } from "../security/outside-cwd.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { analyzeTool } from "./analyze.js";
 import { astEditTool } from "./ast-edit.js";
-import { CORE_TOOL_NAMES, TOOL_CATALOG, truncateBytes, truncateLines } from "./constants.js";
+import { CORE_TOOL_NAMES, getToolCatalog, truncateBytes, truncateLines } from "./constants.js";
 import { discoverPatternTool } from "./discover-pattern.js";
 import { editFileTool } from "./edit-file";
 import { undoEditTool } from "./edit-stack.js";
@@ -1732,7 +1732,7 @@ export function buildTools(
       ...TEXT_OUTPUT,
       description:
         "Load additional tools by name. Available tools:\n" +
-        Object.entries(TOOL_CATALOG)
+        Object.entries(getToolCatalog())
           .map(([name, desc]) => `  ${name} — ${desc}`)
           .join("\n"),
       inputSchema: z.object({
@@ -1743,7 +1743,7 @@ export function buildTools(
       execute: async (args) => {
         const deferred = opts?.activeDeferredTools;
         if (!deferred) return { success: true, output: "On-demand tools not enabled" };
-        const catalog = TOOL_CATALOG;
+        const catalog = getToolCatalog();
         const coreNames = new Set(CORE_TOOL_NAMES);
         const activated: string[] = [];
         const unknown: string[] = [];
