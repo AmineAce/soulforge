@@ -15,9 +15,10 @@
  *   bun scripts/build.ts --compile                                — build standalone binary
  *   bun scripts/build.ts --compile --outfile=path --target=bun-darwin-aarch64
  */
-import { type BunPlugin } from "bun";
+import { type BunPlugin, spawnSync } from "bun";
 import { chmodSync, copyFileSync, cpSync, renameSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import pkgJson from "../package.json";
 
 // Inlined into every native-lookup plugin so the runtime resolution honours
 // %LOCALAPPDATA% on Windows and ~/.soulforge on POSIX. Single source of truth
@@ -247,11 +248,35 @@ if (isCompile) {
   // standalone .exe?" — every isCompiledBinary() call collapses to a literal
   // `true` after Bun's tree-shake. Survives any future change to
   // import.meta.url or process.execPath formatting on any platform.
+  // Object-form compile lets us pin runtime flags into the bun-bootstrap argv:
+  //   --use-system-ca  → respect corporate proxies / custom CA bundles, no env var
+  //   --user-agent=…   → identifiable UA on every outbound fetch (no per-call override)
+  // autoloadDotenv: false stops the binary from picking up stray .env files in
+  // the user's cwd — SoulForge has no opinion about user env files and silently
+  // inheriting one breaks reproducibility.
+  // Bun's compile object form requires `target` — when no --target flag was
+  // passed, fall back to the host triplet so the host build still works.
+  const hostCompileArch =
+    process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x64" : process.arch;
+  const hostCompileTarget = `bun-${
+    process.platform === "win32" ? "windows" : process.platform
+  }-${hostCompileArch}`;
   const phase2 = await Bun.build({
     entrypoints: [`${tmpDir}/soulforge.js`],
     target: "bun",
     plugins: [devtoolsStubPlugin],
-    compile: (compileTarget ?? true) as true,
+    compile: {
+      target: (compileTarget ?? hostCompileTarget) as never,
+      execArgv: [
+        `--user-agent=soulforge/${pkgJson.version}`,
+        "--use-system-ca",
+        "--",
+      ],
+      autoloadBunfig: false,
+      autoloadDotenv: false,
+      autoloadTsconfig: true,
+      autoloadPackageJson: true,
+    } as never,
     define: {
       __SOULFORGE_COMPILED__: "true",
     },
@@ -285,6 +310,33 @@ if (isCompile) {
       ? resolve(`${outfile}.exe`)
       : resolve(outfile)
     : defaultBinary;
+
+  // Smoke test: only when the target arch matches the host. Catches "binary
+  // builds clean but immediately crashes" regressions before the artifact
+  // ships. Cross-compiled builds (e.g. building windows-x64 on darwin-arm64)
+  // can't be exercised here — they're verified in release CI on the matching
+  // runner. SOULFORGE_SKIP_SMOKE=1 escape hatch for sandboxed/CI environments
+  // where exec is restricted.
+  const hostArch = process.arch === "arm64" ? "aarch64" : process.arch;
+  const hostTarget = `bun-${process.platform === "win32" ? "windows" : process.platform}-${hostArch}`;
+  const canSmoke =
+    !process.env.SOULFORGE_SKIP_SMOKE &&
+    (!compileTarget || compileTarget === hostTarget);
+  if (canSmoke) {
+    const smoke = spawnSync({
+      cmd: [finalPath, "--version"],
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+    });
+    if (smoke.exitCode !== 0) {
+      const stderr = smoke.stderr ? new TextDecoder().decode(smoke.stderr) : "";
+      console.error(`✗ Smoke test failed (exit ${smoke.exitCode}) for ${finalPath}`);
+      if (stderr.trim()) console.error(stderr.trim());
+      process.exit(1);
+    }
+  }
+
   console.log(`✓ Compiled binary with React Compiler in ${elapsed}ms → ${finalPath}`);
 } else {
   // Production hardening: when NODE_ENV=production or --prod is passed, the
