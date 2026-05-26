@@ -200,7 +200,10 @@ jobs:
                 #!/bin/bash
                 set -euo pipefail
                 CELLAR="#{libexec}"
-                SF="\$HOME/.soulforge/bin/soulforge"
+                SF_DIR="\$HOME/.soulforge"
+                SF="\$SF_DIR/bin/soulforge"
+                STAMP="\$SF_DIR/.brew-version"
+                EXPECTED="#{version}"
 
                 # post_install may have failed — decompress if still gzipped
                 if [ -f "\$CELLAR/soulforge.gz" ] && [ ! -f "\$CELLAR/soulforge" ]; then
@@ -216,15 +219,21 @@ jobs:
                   exit 1
                 fi
 
-                # Run install.sh if missing or outdated
-                if [ ! -x "\$SF" ] || [ "\$CELLAR/soulforge" -nt "\$SF" ]; then
-                  echo "Setting up SoulForge..." >&2
+                # Run install.sh if missing or version stamp doesn't match the keg.
+                # Version stamp is authoritative — mtime checks are unreliable on
+                # brew upgrade (Homebrew preserves source mtimes).
+                INSTALLED=""
+                [ -r "\$STAMP" ] && INSTALLED="\$(cat "\$STAMP" 2>/dev/null || true)"
+                if [ ! -x "\$SF" ] || [ "\$INSTALLED" != "\$EXPECTED" ]; then
+                  echo "Setting up SoulForge \$EXPECTED..." >&2
                   if ! bash "\$CELLAR/install.sh" --quiet; then
                     echo "" >&2
                     echo "Install failed. Run manually:" >&2
                     echo "  bash \$CELLAR/install.sh" >&2
                     exit 1
                   fi
+                  mkdir -p "\$SF_DIR"
+                  printf '%s\n' "\$EXPECTED" > "\$STAMP"
                 fi
 
                 exec "\$SF" "\$@"
@@ -242,6 +251,22 @@ jobs:
               system "gunzip", libexec/"soulforge.gz" if File.exist?(libexec/"soulforge.gz")
               Dir.glob(libexec/"deps/native/**/*.gz").each { |f| system "gunzip", f }
               system "chmod", "+x", libexec/"soulforge"
+            end
+
+            def uninstall_postflight
+              # brew uninstall removes the keg, but our first-run wrapper
+              # hydrated ~/.soulforge/{bin,wasm,workers,native,opentui-assets,init.lua}
+              # outside the prefix. Remove only what we own; preserve user data
+              # (config.json, history.db, memory.db, sessions, installs/, presets/).
+              sf = "#{Dir.home}/.soulforge"
+              %w[bin wasm workers native opentui-assets].each do |sub|
+                FileUtils.rm_rf("#{sf}/#{sub}")
+              end
+              %w[init.lua .brew-version].each do |f|
+                FileUtils.rm_f("#{sf}/#{f}")
+              end
+            rescue StandardError => e
+              opoo "Cleanup of ~/.soulforge failed: #{e.message}"
             end
 
             def caveats
