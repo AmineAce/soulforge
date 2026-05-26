@@ -427,6 +427,12 @@ export interface AppConfig {
     neovim?: { installed: boolean; version?: string; installedAt?: string };
   };
   /**
+   * Set once the first-run addon wizard has run (regardless of user's pick).
+   * Prevents nagging the user on every launch. Reset to re-prompt on major
+   * addon catalog changes.
+   */
+  addonsPromptShown?: boolean;
+  /**
    * Schema version. Bumped when introducing a config-visible change that
    * needs a one-time user notice on upgrade. Current: 2 (introduces addons).
    */

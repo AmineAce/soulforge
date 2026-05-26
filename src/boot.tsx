@@ -74,6 +74,16 @@ if (cliArgs.includes("--presets") || cliArgs[0] === "presets") {
   process.exit(code);
 }
 
+// First-run addon wizard — pre-TUI, uses @clack/prompts. Runs once per
+// install (gated on config.addonsPromptShown), skipped in non-TTY and when
+// SOULFORGE_NO_PROMPT=1. Already-installed addons are dropped from the list.
+{
+  const { shouldRunAddonWizard, runAddonWizard } = await import("./core/setup/addon-wizard.js");
+  if (shouldRunAddonWizard()) {
+    await runAddonWizard();
+  }
+}
+
 // Collect `--plugin <spec>` (stackable) and pass to the boot pipeline via env.
 // Resolution + merge happens once AppConfig is loaded.
 {
