@@ -1738,10 +1738,11 @@ export function useChat({
       setMessages((prev) => {
         const allMsgs = [...prev, userMsg];
         // messagesRef updates synchronously inside setMessages — safe to read
-        // in the queueMicrotask below. Using the ref (vs the closure-captured
-        // allMsgs) guarantees the save always sees the LATEST messages so
-        // concurrent saves can't truncate messages.jsonl with a stale snapshot.
-        queueMicrotask(() => persistThisTab(messagesRef.current, coreMessagesRef.current));
+        // in the setImmediate below. setImmediate (not queueMicrotask) so the
+        // terminal paints the user bubble FIRST; the sync readFileSync inside
+        // saveTab can take 10s of ms on large sessions and would otherwise
+        // freeze the TUI between Enter and the message appearing.
+        setImmediate(() => persistThisTab(messagesRef.current, coreMessagesRef.current));
         return allMsgs;
       });
 
@@ -1766,7 +1767,7 @@ export function useChat({
       const userCoreMsg: ModelMessage = { role: "user" as const, content: userContent };
       // Sanitize: strip empty assistant text blocks that would cause Anthropic to reject.
       // These can persist from prior sessions or aborted streams.
-      const sanitized = currentCoreMessages.filter((m, i, arr) => {
+      const sanitizedPre = currentCoreMessages.filter((m, i, arr) => {
         if (m.role !== "assistant") return true;
         if (typeof m.content === "string" && m.content.length === 0) {
           // Keep if next message is a tool message (assistant→tool pairing required)
@@ -1777,6 +1778,44 @@ export function useChat({
         }
         return true;
       });
+      // Repair tool-call / tool-result pairing. Mid-turn crashes or incremental
+      // checkpoints can persist an assistant with tool-call parts whose matching
+      // tool-result parts never made it into coreMessages. The AI SDK's
+      // convertToLanguageModelPrompt then rejects the whole request. Synthesize
+      // empty tool-result blocks for any unpaired calls so the request validates.
+      const sanitized: ModelMessage[] = [];
+      for (let i = 0; i < sanitizedPre.length; i++) {
+        const m = sanitizedPre[i];
+        if (!m) continue;
+        sanitized.push(m);
+        if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+        const callParts = m.content.filter(
+          (p): p is ToolCallPart => typeof p === "object" && "type" in p && p.type === "tool-call",
+        );
+        if (callParts.length === 0) continue;
+        const next = sanitizedPre[i + 1];
+        const existingResultIds = new Set<string>();
+        if (next?.role === "tool" && Array.isArray(next.content)) {
+          for (const p of next.content) {
+            if (typeof p === "object" && "type" in p && p.type === "tool-result") {
+              existingResultIds.add((p as { toolCallId: string }).toolCallId);
+            }
+          }
+        }
+        const missing = callParts.filter((c) => !existingResultIds.has(c.toolCallId));
+        if (missing.length === 0) continue;
+        const synthetic = missing.map((c) => ({
+          type: "tool-result" as const,
+          toolCallId: c.toolCallId,
+          toolName: c.toolName,
+          output: { type: "text" as const, value: "Interrupted — no result recorded." },
+        }));
+        if (next?.role === "tool" && Array.isArray(next.content)) {
+          next.content = [...next.content, ...synthetic];
+        } else {
+          sanitized.push({ role: "tool" as const, content: synthetic });
+        }
+      }
       const newCoreMessages: ModelMessage[] = [...sanitized, userCoreMsg];
       setCoreMessages(newCoreMessages);
 
@@ -3032,14 +3071,39 @@ export function useChat({
                         segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
                         ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
                       };
-                      // Read current state without mutating — partial is a
-                      // checkpoint, never committed into the messages list.
-                      // Partial checkpoint: include the in-flight assistant
-                      // (with whatever tool calls completed so far) so the UI
-                      // mirrors what the model sees mid-stream. Don't commit
-                      // partialMsg into state — it's superseded by the
-                      // finalize save below.
-                      persistThisTab([...messagesRef.current, partialMsg], coreMessagesRef.current);
+                      // Build a paired assistant+tool snapshot for coreMessages so
+                      // the checkpoint stays valid for the AI SDK validator if the
+                      // session is restored mid-stream. Without this, coreMessages
+                      // is missing the in-flight assistant entirely while
+                      // messages.jsonl already shows it.
+                      const partialAssistantContent: Array<TextPart | ToolCallPart> = [];
+                      if (fullText.length > 0) {
+                        partialAssistantContent.push({ type: "text", text: fullText });
+                      }
+                      for (const call of completedCalls) {
+                        const args = call.args;
+                        partialAssistantContent.push({
+                          type: "tool-call",
+                          toolCallId: call.id,
+                          toolName: call.name,
+                          input:
+                            typeof args === "object" && args !== null && !Array.isArray(args)
+                              ? args
+                              : {},
+                        });
+                      }
+                      const partialToolContent = completedCalls.map((call) => ({
+                        type: "tool-result" as const,
+                        toolCallId: call.id,
+                        toolName: call.name,
+                        output: { type: "text" as const, value: call.result?.output ?? "" },
+                      }));
+                      const partialCore: ModelMessage[] = [
+                        ...coreMessagesRef.current,
+                        { role: "assistant" as const, content: partialAssistantContent },
+                        { role: "tool" as const, content: partialToolContent },
+                      ];
+                      persistThisTab([...messagesRef.current, partialMsg], partialCore);
                     } catch {
                       // Don't let checkpoint failures interrupt streaming
                     }
@@ -3065,7 +3129,15 @@ export function useChat({
                 const enriched = sBody ?? sData;
                 const displayErr = enriched ? `${errText} · ${enriched}` : errText;
                 logBackgroundError("api", displayErr);
-                appendText(`\n\n_Error: ${displayErr}_`);
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "system",
+                    content: `Error: ${displayErr}`,
+                    timestamp: Date.now(),
+                  },
+                ]);
                 if (streamErrors.length < 50) {
                   streamErrors.push(
                     errStack ? `Error: ${displayErr}\n\n${errStack}` : `Error: ${displayErr}`,

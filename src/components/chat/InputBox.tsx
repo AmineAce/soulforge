@@ -425,16 +425,21 @@ export const InputBox = memo(function InputBox({
 
       // During loading or compacting: slash commands execute immediately, messages queue
       if ((isLoading || isCompacting) && !finalInput.trim().startsWith("/")) {
+        const queued = finalInput.trim();
         const images = pendingImages.current.length > 0 ? [...pendingImages.current] : undefined;
-        onQueue?.(finalInput.trim(), images);
         resetInput();
+        onQueue?.(queued, images);
         return;
       }
 
-      pushHistory(finalInput.trim());
+      const trimmed = finalInput.trim();
       const images = pendingImages.current.length > 0 ? [...pendingImages.current] : undefined;
-      onSubmit(finalInput.trim(), images);
+      // Reset the input FIRST so React paints the empty box immediately,
+      // then submit, then defer the history write (SQLite INSERT) off the
+      // critical path — submitting a huge paste now feels instant.
       resetInput();
+      onSubmit(trimmed, images);
+      setImmediate(() => pushHistory(trimmed));
     },
     [
       matches,

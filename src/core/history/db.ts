@@ -66,21 +66,27 @@ export class HistoryDB {
   }
 
   push(entry: string, project?: string): void {
-    this.db
-      .query(
-        `INSERT INTO history (entry, project, created_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(entry) DO UPDATE SET
-           project = excluded.project,
-           created_at = datetime('now')`,
-      )
-      .run(entry, project ?? null);
-
-    this.writesSincePrune++;
-    if (this.writesSincePrune >= PRUNE_INTERVAL) {
-      this.prune();
-      this.writesSincePrune = 0;
-    }
+    // Defer the write — submit path must not block on SQLite I/O.
+    // History is only read on focus refresh, so eventual consistency is fine.
+    setImmediate(() => {
+      try {
+        if (!this.insertStmt) {
+          this.insertStmt = this.db.query(
+            `INSERT INTO history (entry, project, created_at)
+             VALUES (?, ?, datetime('now'))
+             ON CONFLICT(entry) DO UPDATE SET
+               project = excluded.project,
+               created_at = datetime('now')`,
+          );
+        }
+        this.insertStmt.run(entry, project ?? null);
+        this.writesSincePrune++;
+        if (this.writesSincePrune >= PRUNE_INTERVAL) {
+          this.prune();
+          this.writesSincePrune = 0;
+        }
+      } catch {}
+    });
   }
 
   recent(limit = 100): string[] {
@@ -128,4 +134,6 @@ export class HistoryDB {
   close(): void {
     this.db.close();
   }
+
+  private insertStmt: ReturnType<Database["query"]> | null = null;
 }
