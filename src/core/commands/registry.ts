@@ -1,3 +1,5 @@
+import { detectNeovim } from "../editor/detect.js";
+import { isAddonInstalled } from "../setup/addons.js";
 import { matchCheckpointPrefix, register as registerCheckpoint } from "./checkpoint.js";
 import { matchClaimsPrefix, register as registerClaims } from "./claims.js";
 import { register as registerCodex } from "./codex.js";
@@ -33,6 +35,24 @@ registerHearth(commandMap);
 registerHooks(commandMap);
 registerCheckpoint(commandMap);
 registerUiDemo(commandMap);
+
+// Nvim presence — true if the addon is installed OR a system nvim resolves
+// from PATH. Cached on first call because palette renders touch it on every
+// keystroke; reset via `resetNvimDetection()` after addon install/remove so
+// the user doesn't have to relaunch to see new commands.
+let _nvimDetected: boolean | null = null;
+function hasNvim(): boolean {
+  if (_nvimDetected !== null) return _nvimDetected;
+  if (isAddonInstalled("neovim")) {
+    _nvimDetected = true;
+    return true;
+  }
+  _nvimDetected = detectNeovim() !== null;
+  return _nvimDetected;
+}
+export function resetNvimDetection(): void {
+  _nvimDetected = null;
+}
 
 const prefixMatchers = [
   matchContextPrefix,
@@ -93,8 +113,12 @@ export interface CommandDef {
   category: string;
   /** Free-form keywords folded into fuzzy match. */
   tags?: string[];
-  /** Hide from autocomplete + palette listings. Still dispatchable. */
-  hidden?: boolean;
+  /**
+   * Hide from autocomplete + palette listings. Still dispatchable.
+   * Function form is re-evaluated on every render — used for addon-gated
+   * commands (`/proxy*` hidden until proxy addon is installed, etc.).
+   */
+  hidden?: boolean | (() => boolean);
   /**
    * Promote to the "Suggested" section when palette filter is empty.
    * `boolean` for static, `() => boolean` for context-dependent (e.g. only
@@ -376,6 +400,10 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["llm", "switch"],
     hidden: true,
   },
+  // Proxy commands — hidden until the user installs the proxy addon
+  // (`soulforge addon install proxy`). The exception is the top-level `/proxy`
+  // entry: it stays visible so users can discover the install hint from the
+  // palette, but its handler short-circuits with the addon message.
   {
     cmd: "/proxy",
     ic: "proxy",
@@ -389,6 +417,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Reinstall CLIProxyAPI",
     category: "Models",
     tags: ["setup"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy login",
@@ -396,6 +425,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Add a provider account",
     category: "Models",
     tags: ["auth", "oauth"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy logout",
@@ -403,6 +433,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Remove a provider account",
     category: "Models",
     tags: ["auth"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy restart",
@@ -410,6 +441,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Restart the proxy",
     category: "Models",
     tags: ["reboot"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy start",
@@ -417,6 +449,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Start the proxy",
     category: "Models",
     tags: ["launch"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy status",
@@ -424,6 +457,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Proxy status & accounts",
     category: "Models",
     tags: ["info"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy stop",
@@ -431,6 +465,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Stop the proxy",
     category: "Models",
     tags: ["kill"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/proxy upgrade",
@@ -438,6 +473,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Upgrade to latest version",
     category: "Models",
     tags: ["update"],
+    hidden: () => !isAddonInstalled("proxy"),
   },
   {
     cmd: "/router",
@@ -606,6 +642,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Switch neovim config mode",
     category: "Settings",
     tags: ["editor", "neovim"],
+    hidden: () => !isAddonInstalled("neovim"),
   },
   {
     cmd: "/reasoning",
@@ -652,12 +689,16 @@ const COMMAND_DEFS: CommandDef[] = [
   },
 
   // ── Editor ──
+  // Editor commands need a working nvim. Hidden when neither the addon nor a
+  // system-installed nvim is detected — `/editor settings` (LSP toggles) is
+  // kept visible because LSP works without nvim.
   {
     cmd: "/editor",
     ic: "pencil",
     desc: "Editor — toggle, open, settings, split",
     category: "Editor",
     tags: ["neovim", "toggle"],
+    hidden: () => !hasNvim(),
   },
   {
     cmd: "/editor open",
@@ -665,6 +706,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Open file in editor",
     category: "Editor",
     tags: ["file"],
+    hidden: () => !hasNvim(),
   },
   {
     cmd: "/editor settings",
@@ -679,6 +721,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Cycle editor/chat split (40/50/60/70)",
     category: "Editor",
     tags: ["layout", "resize"],
+    hidden: () => !hasNvim(),
   },
 
   // ── Tabs ──
@@ -1005,9 +1048,13 @@ export type { CommandContext, CommandHandler };
  * empty-filter state. Evaluates predicate suggesteds (e.g. only suggest
  * `/setup` when prerequisites are missing).
  */
+export function isDefHidden(def: CommandDef): boolean {
+  return typeof def.hidden === "function" ? def.hidden() : def.hidden === true;
+}
+
 export function getSuggestedCommandDefs(): CommandDef[] {
   return getCommandDefs().filter((d) => {
-    if (d.hidden) return false;
+    if (isDefHidden(d)) return false;
     return typeof d.suggested === "function" ? d.suggested() : d.suggested === true;
   });
 }

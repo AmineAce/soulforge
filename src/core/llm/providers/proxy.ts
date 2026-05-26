@@ -49,6 +49,14 @@ export const proxy: ProviderDefinition = {
     return null;
   },
 
+  // Hide the proxy provider from `/model` and Ctrl+L until the addon is
+  // installed. Lazy-imported so we don't pull addons.ts into every provider
+  // module's load graph; called once per `checkProviders()` boot pass.
+  async checkAvailability(): Promise<boolean> {
+    const { isAddonInstalled } = await import("../../setup/addons.js");
+    return isAddonInstalled("proxy");
+  },
+
   async onActivate() {
     await ensureProxy();
   },

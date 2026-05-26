@@ -332,17 +332,13 @@ export async function ensureProxy(): Promise<{ ok: boolean; error?: string }> {
 
   setState("starting");
 
-  let binary = getProxyBinary();
+  const binary = getProxyBinary();
   if (!binary) {
-    try {
-      const installed = await installProxy();
-      binary = installed.path;
-      saveInstalledProxyVersion(installed.version);
-    } catch (err) {
-      const msg = toErrorMessage(err);
-      setState("error", `Failed to install CLIProxyAPI: ${msg}`);
-      return { ok: false, error: `Failed to install CLIProxyAPI: ${msg}` };
-    }
+    // Proxy is an opt-in addon — do NOT lazy-install. Surface a clear,
+    // actionable error so the user knows exactly what to run.
+    const msg = "Proxy addon not installed. Run `soulforge addon install proxy` to install it.";
+    setState("error", msg);
+    return { ok: false, error: msg };
   }
 
   ensureConfig();
@@ -708,6 +704,11 @@ export async function checkForProxyUpdate(): Promise<ProxyVersionInfo> {
 export async function upgradeProxy(
   onStatus: (msg: string) => void,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!getProxyBinary()) {
+    const msg = "Proxy addon not installed. Run `soulforge addon install proxy` to install it.";
+    onStatus(msg);
+    return { ok: false, error: msg };
+  }
   const vinfo = await checkForProxyUpdate();
   if (!vinfo.updateAvailable || !vinfo.latest) {
     return { ok: true };

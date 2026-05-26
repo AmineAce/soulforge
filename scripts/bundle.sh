@@ -20,44 +20,23 @@ BUNDLE_NAME="soulforge-${VERSION}-${PLATFORM}-${ARCH}"
 STAGE_DIR="dist/bundle/${BUNDLE_NAME}"
 DEPS_DIR="${STAGE_DIR}/deps"
 
-NVIM_VERSION="0.11.2"
 RG_VERSION="14.1.1"
 FD_VERSION="10.2.0"
 LAZYGIT_VERSION="0.44.1"
-
-# PROXY_VERSION: resolved dynamically at bundle-build time so each release
-# ships the latest CLIProxyAPI. Override with `PROXY_VERSION=x.y.z ./bundle.sh`
-# for reproducible builds or to pin when an upstream release regresses.
-# Fallback (last-known-good) is used if GitHub is unreachable.
-PROXY_VERSION_FALLBACK="6.10.6"
-if [[ -z "${PROXY_VERSION:-}" ]]; then
-  AUTH_HEADER=()
-  [[ -n "${GITHUB_TOKEN:-}" ]] && AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-  PROXY_VERSION="$(curl -fsSL --max-time 10 "${AUTH_HEADER[@]}" https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest 2>/dev/null \
-    | python3 -c 'import sys,json;print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null \
-    || echo "")"
-  if [[ -z "$PROXY_VERSION" ]]; then
-    echo "warn: could not fetch latest CLIProxyAPI version — using fallback $PROXY_VERSION_FALLBACK" >&2
-    PROXY_VERSION="$PROXY_VERSION_FALLBACK"
-  fi
-fi
-echo "bundling CLIProxyAPI v${PROXY_VERSION}"
+# Neovim + CLIProxyAPI are NOT bundled — they're opt-in addons fetched at
+# runtime via `soulforge addon install <name>`.
 
 # ── Platform / arch matrix ──
 if [[ "$PLATFORM" == "darwin" ]]; then
   if [[ "$ARCH" == "arm64" ]]; then
-    NVIM_ASSET="nvim-macos-arm64.tar.gz"
     RG_TRIPLET="aarch64-apple-darwin"
     FD_TRIPLET="aarch64-apple-darwin"
     LAZYGIT_SUFFIX="Darwin_arm64"
-    PROXY_SUFFIX="darwin_aarch64"
     BUN_TARGET="bun-darwin-aarch64"
   elif [[ "$ARCH" == "x64" ]]; then
-    NVIM_ASSET="nvim-macos-x86_64.tar.gz"
     RG_TRIPLET="x86_64-apple-darwin"
     FD_TRIPLET="x86_64-apple-darwin"
     LAZYGIT_SUFFIX="Darwin_x86_64"
-    PROXY_SUFFIX="darwin_amd64"
     BUN_TARGET="bun-darwin-x64"
   else
     echo "Unknown arch: ${ARCH} (use arm64 or x64)"
@@ -65,18 +44,14 @@ if [[ "$PLATFORM" == "darwin" ]]; then
   fi
 elif [[ "$PLATFORM" == "linux" ]]; then
   if [[ "$ARCH" == "arm64" ]]; then
-    NVIM_ASSET="nvim-linux-arm64.tar.gz"
     RG_TRIPLET="aarch64-unknown-linux-gnu"
     FD_TRIPLET="aarch64-unknown-linux-gnu"
     LAZYGIT_SUFFIX="Linux_arm64"
-    PROXY_SUFFIX="linux_aarch64"
     BUN_TARGET="bun-linux-aarch64"
   elif [[ "$BASE_ARCH" == "x64" ]]; then
-    NVIM_ASSET="nvim-linux-x86_64.tar.gz"
     RG_TRIPLET="x86_64-unknown-linux-musl"
     FD_TRIPLET="x86_64-unknown-linux-musl"
     LAZYGIT_SUFFIX="Linux_x86_64"
-    PROXY_SUFFIX="linux_amd64"
     if [[ "$ARCH" == "x64-baseline" ]]; then
         BUN_TARGET="bun-linux-x64-baseline"
     else
@@ -115,11 +90,7 @@ download() {
 CACHE_DIR="dist/bundle/.cache"
 mkdir -p "$CACHE_DIR"
 
-# Neovim
-NVIM_URL="https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM_ASSET}"
-download "$NVIM_URL" "${CACHE_DIR}/nvim-${PLATFORM}-${BASE_ARCH}.tar.gz" "neovim ${NVIM_VERSION}"
-mkdir -p "${DEPS_DIR}/nvim"
-tar xzf "${CACHE_DIR}/nvim-${PLATFORM}-${BASE_ARCH}.tar.gz" -C "${DEPS_DIR}/nvim" --strip-components=1
+# Neovim: NOT bundled. Users opt in via `soulforge addon install neovim`.
 
 # ripgrep
 RG_ASSET="ripgrep-${RG_VERSION}-${RG_TRIPLET}.tar.gz"
@@ -148,16 +119,9 @@ tar xzf "${CACHE_DIR}/lazygit-${PLATFORM}-${BASE_ARCH}.tar.gz" -C "${DEPS_DIR}/l
 cp "${DEPS_DIR}/lazygit-tmp/lazygit" "${DEPS_DIR}/lazygit"
 rm -rf "${DEPS_DIR}/lazygit-tmp"
 
-# cli-proxy-api
-PROXY_ASSET="CLIProxyAPI_${PROXY_VERSION}_${PROXY_SUFFIX}.tar.gz"
-PROXY_URL="https://github.com/router-for-me/CLIProxyAPI/releases/download/v${PROXY_VERSION}/${PROXY_ASSET}"
-download "$PROXY_URL" "${CACHE_DIR}/proxy-${PLATFORM}-${BASE_ARCH}.tar.gz" "cli-proxy-api ${PROXY_VERSION}"
-mkdir -p "${DEPS_DIR}/proxy-tmp"
-tar xzf "${CACHE_DIR}/proxy-${PLATFORM}-${BASE_ARCH}.tar.gz" -C "${DEPS_DIR}/proxy-tmp"
-cp "${DEPS_DIR}/proxy-tmp/cli-proxy-api" "${DEPS_DIR}/cli-proxy-api"
-rm -rf "${DEPS_DIR}/proxy-tmp"
+# cli-proxy-api: NOT bundled. Users opt in via `soulforge addon install proxy`.
 
-chmod +x "${DEPS_DIR}/nvim/bin/nvim" "${DEPS_DIR}/rg" "${DEPS_DIR}/fd" "${DEPS_DIR}/lazygit" "${DEPS_DIR}/cli-proxy-api"
+chmod +x "${DEPS_DIR}/rg" "${DEPS_DIR}/fd" "${DEPS_DIR}/lazygit"
 
 # Native addons — can't be embedded in compiled binaries
 echo "    Bundling native addons..."
@@ -217,12 +181,6 @@ sed -i.bak 's|var nodePath = require("path")|var nodePath = __require("path")|g'
 sed -i.bak 's|require("url")|__require("url")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
 rm -f "${DEPS_DIR}/opentui-assets/parser.worker.js.bak"
 cp src/core/editor/init.lua "${DEPS_DIR}/init.lua"
-
-# Neovim LICENSE (not included in official release tarball — download from repo)
-if [[ ! -f "${CACHE_DIR}/nvim-LICENSE.txt" ]]; then
-  curl -fSL --retry 3 "https://raw.githubusercontent.com/neovim/neovim/v${NVIM_VERSION}/LICENSE.txt" -o "${CACHE_DIR}/nvim-LICENSE.txt"
-fi
-cp "${CACHE_DIR}/nvim-LICENSE.txt" "${DEPS_DIR}/nvim/LICENSE.txt"
 
 # Nerd Font Symbols Only — enables icons without requiring a full Nerd Font
 NERD_FONTS_VERSION="v3.4.0"
@@ -368,18 +326,11 @@ if [[ -n "$QUIET" ]]; then
   cp "${SCRIPT_DIR}/soulforge" "${BIN_DIR}/soulforge" && chmod +x "${BIN_DIR}/soulforge" && ln -sf "${BIN_DIR}/soulforge" "${BIN_DIR}/sf"
   step "Forging the soul binary"
 
-  for bin in rg fd lazygit cli-proxy-api; do
+  for bin in rg fd lazygit; do
     cp "${SCRIPT_DIR}/deps/${bin}" "${BIN_DIR}/${bin}"
     chmod +x "${BIN_DIR}/${bin}"
   done
   step "Sharpening the search blades"
-
-  NVIM_DIR="${SOULFORGE_DIR}/installs/nvim-bundled"
-  mkdir -p "${SOULFORGE_DIR}/installs"
-  rm -rf "$NVIM_DIR"
-  cp -r "${SCRIPT_DIR}/deps/nvim" "$NVIM_DIR"
-  ln -sf "${NVIM_DIR}/bin/nvim" "${BIN_DIR}/nvim"
-  step "Summoning the editor spirit"
 
   mkdir -p "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/workers"
   cp "${SCRIPT_DIR}/deps/wasm/"*.wasm "${SOULFORGE_DIR}/wasm/"
@@ -413,18 +364,11 @@ else
   (cp "${SCRIPT_DIR}/soulforge" "${BIN_DIR}/soulforge" && chmod +x "${BIN_DIR}/soulforge" && ln -sf "${BIN_DIR}/soulforge" "${BIN_DIR}/sf") &
   spin "Forging the soul binary" $!
 
-  (for bin in rg fd lazygit cli-proxy-api; do
+  (for bin in rg fd lazygit; do
     cp "${SCRIPT_DIR}/deps/${bin}" "${BIN_DIR}/${bin}"
     chmod +x "${BIN_DIR}/${bin}"
   done) &
   spin "Sharpening the search blades" $!
-
-  (NVIM_DIR="${SOULFORGE_DIR}/installs/nvim-bundled"
-  mkdir -p "${SOULFORGE_DIR}/installs"
-  rm -rf "$NVIM_DIR"
-  cp -r "${SCRIPT_DIR}/deps/nvim" "$NVIM_DIR"
-  ln -sf "${NVIM_DIR}/bin/nvim" "${BIN_DIR}/nvim") &
-  spin "Summoning the editor spirit" $!
 
   (mkdir -p "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/workers"
   cp "${SCRIPT_DIR}/deps/wasm/"*.wasm "${SOULFORGE_DIR}/wasm/"

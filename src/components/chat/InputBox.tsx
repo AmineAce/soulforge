@@ -2,7 +2,7 @@ import type { BoxRenderable, ScrollBoxRenderable, TextareaRenderable } from "@op
 import { decodePasteBytes, type PasteEvent, TextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCommandDefs } from "../../core/commands/registry.js";
+import { getCommandDefs, isDefHidden } from "../../core/commands/registry.js";
 import { type FuzzyMatch, fuzzyFilter, fuzzyMatch } from "../../core/history/fuzzy.js";
 import {
   frecencyScore,
@@ -38,14 +38,12 @@ interface Props {
   tabId: string;
 }
 
-let _commands: Array<{ cmd: string; icon: string; desc: string }> | null = null;
-function getCommands() {
-  if (!_commands) {
-    _commands = getCommandDefs()
-      .filter((c) => !c.hidden)
-      .map((c) => ({ cmd: c.cmd, icon: icon(c.ic), desc: c.desc }));
-  }
-  return _commands;
+// Computed per call — hidden may be a thunk (addon-gated commands need
+// re-evaluation when the user installs/removes proxy or neovim).
+function getCommands(): Array<{ cmd: string; icon: string; desc: string }> {
+  return getCommandDefs()
+    .filter((c) => !isDefHidden(c))
+    .map((c) => ({ cmd: c.cmd, icon: icon(c.ic), desc: c.desc }));
 }
 
 const HighlightedText = memo(function HighlightedText({

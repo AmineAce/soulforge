@@ -16,6 +16,7 @@ import {
   type CommandDef,
   getCommandDefs,
   getSuggestedCommandDefs,
+  isDefHidden,
 } from "../../core/commands/registry.js";
 import { fuzzyMatch } from "../../core/history/fuzzy.js";
 import { useTheme } from "../../core/theme/index.js";
@@ -78,7 +79,7 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
   const cursorRef = useRef(0);
   cursorRef.current = cursor;
 
-  const allDefs = useMemo(() => getCommandDefs().filter((d) => !d.hidden), []);
+  const allDefs = useMemo(() => getCommandDefs().filter((d) => !isDefHidden(d)), []);
 
   // Reset on open
   useEffect(() => {
@@ -91,7 +92,7 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
   // registry tags a handful of high-value commands; we de-dupe them from
   // their category groups below so they don't render twice.
   const suggestedDefs = useMemo(() => {
-    return getSuggestedCommandDefs().filter((d) => !d.hidden);
+    return getSuggestedCommandDefs().filter((d) => !isDefHidden(d));
   }, []);
   const suggestedSet = useMemo(() => new Set(suggestedDefs.map((d) => d.cmd)), [suggestedDefs]);
 

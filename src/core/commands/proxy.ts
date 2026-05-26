@@ -272,14 +272,15 @@ async function handleProxyLogout(_input: string, ctx: CommandContext): Promise<v
 }
 
 async function handleProxyInstall(_input: string, ctx: CommandContext): Promise<void> {
-  const { installProxy } = await import("../setup/install.js");
+  // Delegates to the addon installer so the proxy stays in lockstep with the
+  // public `soulforge addon install proxy` flow (same config write, same
+  // discovery surface).
+  const { installAddon } = await import("../setup/addons.js");
   sysMsg(ctx, "Installing CLIProxyAPI...");
-  installProxy()
-    .then(({ path, version }) => sysMsg(ctx, `CLIProxyAPI v${version} installed at ${path}`))
-    .catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      sysMsg(ctx, `Install failed: ${msg}`);
-    });
+  installAddon("proxy", (msg) => sysMsg(ctx, msg)).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    sysMsg(ctx, `Install failed: ${message}`);
+  });
 }
 
 async function handleProxyUpgrade(_input: string, ctx: CommandContext): Promise<void> {

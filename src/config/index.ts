@@ -240,6 +240,7 @@ export function saveGlobalConfig(patch: Partial<AppConfig>): void {
   if (patch.agentFeatures)
     merged.agentFeatures = { ...existing.agentFeatures, ...patch.agentFeatures };
   if (patch.retry) merged.retry = { ...existing.retry, ...patch.retry };
+  if (patch.addons) merged.addons = { ...existing.addons, ...patch.addons };
 
   writeFileSync(configFile, JSON.stringify(merged, null, 2));
 }
@@ -277,6 +278,7 @@ const NESTED_KEYS = [
   "agentFeatures",
   "compaction",
   "retry",
+  "addons",
 ] as const;
 
 export function applyConfigPatch<T extends Partial<AppConfig>>(

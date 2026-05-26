@@ -44,6 +44,14 @@ if (cliArgs[0] === "remote") {
   process.exit(0);
 }
 
+// `soulforge addon <install|remove|update|list> [proxy|neovim]` —
+// out-of-band component management. Runs without booting the TUI.
+if (cliArgs[0] === "addon" || cliArgs[0] === "addons") {
+  const { runAddonCli } = await import("./core/setup/addons.js");
+  const code = await runAddonCli(cliArgs.slice(1));
+  process.exit(code);
+}
+
 if (hasCli) {
   const { parseHeadlessArgs, runHeadless } = await import("./headless/index.js");
   const action = await parseHeadlessArgs(cliArgs);
@@ -386,7 +394,15 @@ const [configMod, detectMod, iconsMod, installMod] = await earlyModules;
 const { loadConfig, loadProjectConfig } = configMod;
 const { detectNeovim } = detectMod;
 const { initNerdFont } = iconsMod;
-const { getVendoredPath, installNeovim, installRipgrep, installFd, installLazygit } = installMod;
+const { getVendoredPath, installRipgrep, installFd, installLazygit } = installMod;
+
+// Honour `SOULFORGE_AUTO_INSTALL_ADDONS=proxy,neovim` BEFORE detection runs.
+// CI / Docker hook — silent install of opted-in addons on first boot. Failures
+// are logged, never fatal; we keep booting either way.
+{
+  const { autoInstallFromEnv } = await import("./core/setup/addons.js");
+  await autoInstallFromEnv();
+}
 
 let resumeSessionId: string | undefined;
 let forceWizard = false;
@@ -440,17 +456,12 @@ const contextManagerReady = import("./core/context/manager.js").then(({ ContextM
   ContextManager.createAsync(process.cwd(), (step) => status(step), { repoMapEnabled }),
 );
 
+// Detect nvim — DO NOT auto-install. Neovim is an opt-in addon now:
+// users run `soulforge addon install neovim` (or set
+// SOULFORGE_AUTO_INSTALL_ADDONS) to pull it in. When absent, the editor
+// panel surfaces the install hint.
 status("Summoning the editor spirit");
-let nvim = detectNeovim();
-if (!nvim) {
-  status("Forging Neovim from scratch", "This only happens once");
-  try {
-    const path = await installNeovim();
-    nvim = { path, version: "0.11.1" };
-  } catch {
-    // Continue without neovim — editor panel will show install instructions
-  }
-}
+const nvim = detectNeovim();
 if (nvim) {
   config.nvimPath = nvim.path;
   import("./core/editor/neovim.js")

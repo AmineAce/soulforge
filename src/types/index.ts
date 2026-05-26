@@ -415,6 +415,21 @@ export interface AppConfig {
    * Key = model ID (e.g. "proxy/gpt-5.5"), Value = real window in tokens.
    */
   contextWindowOverrides?: Record<string, number>;
+  /**
+   * Optional addons (proxy = CLIProxyAPI, neovim = bundled nvim).
+   * Default install ships neither — opt in via `soulforge addon install <name>`.
+   * `undefined` for an addon means "not installed". Older configs without this
+   * field are treated as pre-addon installs and trigger the one-time upgrade banner.
+   */
+  addons?: {
+    proxy?: { installed: boolean; version?: string; installedAt?: string };
+    neovim?: { installed: boolean; version?: string; installedAt?: string };
+  };
+  /**
+   * Schema version. Bumped when introducing a config-visible change that
+   * needs a one-time user notice on upgrade. Current: 2 (introduces addons).
+   */
+  configVersion?: number;
 }
 
 export interface RetryConfig {
