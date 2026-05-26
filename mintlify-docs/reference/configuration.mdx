@@ -15,7 +15,7 @@ Config lives in two files. Project wins.
 
 ```json
 {
-  "defaultModel": "anthropic/claude-sonnet-4-6",
+  "defaultModel": "anthropic/claude-sonnet-4-5",
   "thinking": { "mode": "adaptive" },
   "repoMap": true,
   "semanticSummaries": "ast",
@@ -28,8 +28,8 @@ Config lives in two files. Project wins.
     "keepRecent": 4
   },
   "taskRouter": {
-    "spark":      "anthropic/claude-haiku-4",
-    "ember":      "anthropic/claude-sonnet-4-6",
+    "spark":      "anthropic/claude-haiku-4-5",
+    "ember":      "anthropic/claude-sonnet-4-5",
     "compact":    "google/gemini-2.5-flash"
   },
   "agentFeatures": {
@@ -48,7 +48,7 @@ Config lives in two files. Project wins.
 
 | Field | Default | What it does |
 |-------|---------|--------------|
-| `defaultModel` | `"none"` | Active model ID. `"none"` forces picker on launch. |
+| `defaultModel` | `"none"` | Active model ID. `"none"` (default) forces picker on launch. |
 | `thinking.mode` | `"off"` | `"off"`, `"adaptive"`, `"enabled"` |
 | `thinking.budget` | — | Tokens when `mode: "enabled"` (1024, 2048, 5000, 10000, 20000) |
 
@@ -98,13 +98,13 @@ Assign different models to different jobs. See the [task router recipe](/recipes
 
 ```json
 "taskRouter": {
-  "spark":      "anthropic/claude-haiku-4",
-  "ember":      "anthropic/claude-sonnet-4-6",
-  "webSearch":  "anthropic/claude-haiku-4",
-  "desloppify": "anthropic/claude-haiku-4",
-  "verify":     "anthropic/claude-haiku-4",
+  "spark":      "anthropic/claude-haiku-4-5",
+  "ember":      "anthropic/claude-sonnet-4-5",
+  "webSearch":  "anthropic/claude-haiku-4-5",
+  "desloppify": "anthropic/claude-haiku-4-5",
+  "verify":     "anthropic/claude-haiku-4-5",
   "compact":    "google/gemini-2.5-flash",
-  "semantic":   "anthropic/claude-haiku-4",
+  "semantic":   "anthropic/claude-haiku-4-5",
   "default":    null
 }
 ```
@@ -159,6 +159,8 @@ Keys go to your OS keychain when available, with a file fallback otherwise.
 | macOS | Login Keychain (`security`), service `soulforge` |
 | Linux | libsecret via `secret-tool` (GNOME Keyring, KWallet) |
 | Linux without `secret-tool` | `~/.soulforge/secrets.json`, mode `0600` |
+| Windows | DPAPI (`crypt32.dll`) — `%LOCALAPPDATA%\SoulForge\secrets.dat`, user-scoped |
+| Windows without DPAPI | Plain JSON under same dir — set `SOULFORGE_KEY_PRIORITY=env` to skip disk |
 | Windows (WSL) | Same as Linux above |
 
 `soulforge --set-key <provider> <key>` writes to whichever backend is active. Inspect with `soulforge --list-providers`.
@@ -230,7 +232,20 @@ Built-ins already cover `.env`, `.pem`, `credentials`, `id_rsa`, `.npmrc`, `.net
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SOULFORGE_NO_REPOMAP` | unset | Skip the repo-map scan at startup. |
-| `SOULFORGE_MAX_OUTPUT_TOKENS` | `32000` | Per-step output cap for all agents (forge + subagents + web-search). Raise for reasoning models that hit `finish_reason=length`; the agent loop exits silently on truncation, so increasing this prevents mid-thought stops. |
+| `SOULFORGE_MAX_OUTPUT_TOKENS` | `64000` | Per-step output cap for all agents (forge + subagents + web-search). Raise for reasoning models that hit `finish_reason=length`. |
+| `SOULFORGE_PRESETS` | unset | Comma-separated preset specs to load on boot. Set automatically by `--plugin <spec>` flags. See [presets](#presets). |
+| `SOULFORGE_KEY_PRIORITY` | `env` | Key lookup order. `env` = env→keychain→file, `app` = keychain→file→env. |
+| `SOULFORGE_NO_PROMPT` | unset | Skip first-run addon wizard (set to `1`). Useful in CI. |
+| `SOULFORGE_DEBUG_API` | unset | Dump per-step API requests to `~/.soulforge/api-export/`. |
+| `SOULFORGE_DEV_UI` | unset | Show dev-only slash commands (`/ui-demo`, etc). |
+| `SOULFORGE_ENABLE_GHOSTTY` | unset | Force-enable the embedded floating terminal on Windows (off by default — see [Windows limits](/windows#whats-limited-on-windows)). |
+| `SOULFORGE_HEARTH_SOCKET` | `<configDir>/hearth.sock` | Override the Hearth IPC socket path. |
+| `SOULFORGE_HEARTH_APPROVAL_TIMEOUT_MS` | `300000` | Approval timeout for remote tool calls. |
+| `SOULFORGE_HEARTH_DENY_READ_REMOTE` | unset | Block read-only tools from remote surfaces (set to `1`). |
+| `SOULFORGE_PROXY_VERSION` | latest | Pin a CLIProxyAPI version when installing the proxy addon. |
+| `SOULFORGE_AUTO_INSTALL_ADDONS` | unset | Comma-separated addons to install automatically (`proxy,neovim`). |
+
+Install-time variables (read by `scripts/install.ps1` on Windows): `SOULFORGE_VERSION`, `SOULFORGE_INSTALL_DIR`, `SOULFORGE_NO_PATH`. See [Windows](/windows#quick-install).
 
 ## Hooks
 

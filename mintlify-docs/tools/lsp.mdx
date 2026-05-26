@@ -44,9 +44,11 @@ Both cover the same capabilities. Standalone servers stay warm as hot standby ev
 
 ## Supported languages
 
-LSP backend supports: TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Scala, C#, Swift, Dart, Elixir, OCaml, Lua, C, C++, Ruby, PHP, Zig, Bash, CSS, HTML, JSON, TOML, YAML, Dockerfile, Vue.
+Typical LSP coverage (any Mason package works): TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Scala, C#, Swift, Dart, Elixir, OCaml, Lua, C, C++, Ruby, PHP, Zig, Bash, CSS, HTML, JSON, TOML, YAML, Dockerfile, Vue.
 
-For anything LSP doesn't cover, the intelligence router falls through to ts-morph (TypeScript/JavaScript AST), tree-sitter (33 languages), and regex.
+Tree-sitter detection adds ReScript, Solidity, TLA+, Emacs Lisp, Objective-C, Nix, HCL/Terraform, Bazel/Starlark, Jsonnet, Makefile, GraphQL, Protobuf, SQL, Markdown, MDX, XML, and more.
+
+For anything LSP doesn't cover, the intelligence router falls through to ts-morph (TypeScript/JavaScript AST), tree-sitter, and regex.
 
 ## Mason installer
 

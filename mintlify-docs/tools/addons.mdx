@@ -1,0 +1,81 @@
+---
+title: "Addons"
+description: "Optional bundled components — CLIProxyAPI and Neovim — fetched on demand."
+icon: "puzzle-piece"
+---
+
+Addons are opt-in components that ship outside the main binary. They're downloaded the first time you ask for them, recorded in your global config, and managed entirely from the CLI.
+
+Two addons today:
+
+| Addon | What it gets you | Approx size |
+|-------|------------------|-------------|
+| `proxy` | [CLIProxyAPI](https://github.com/luispater/CLIProxyAPI) — local LLM relay that lets you route Claude, GPT, Gemini, and Grok through your existing chat subscriptions instead of API keys. | ~25 MB |
+| `neovim` | Bundled Neovim binary for the embedded editor panel, when you don't want to install Neovim system-wide. | ~15 MB |
+
+Neither is required. The default install ships neither.
+
+## First-run wizard
+
+On first launch in a TTY, SoulForge offers to install both. Skip and re-run later — your choice is remembered.
+
+```bash
+# Skip the prompt in CI / non-interactive shells
+SOULFORGE_NO_PROMPT=1 soulforge
+```
+
+## CLI
+
+```bash
+soulforge addon list                       # show state (installed / version / path)
+soulforge addon install proxy              # install the proxy addon
+soulforge addon install neovim             # install bundled neovim
+soulforge addon remove proxy               # uninstall (leaves system PATH copies alone)
+soulforge addon update neovim              # reinstall latest
+soulforge addon --help                     # full usage
+```
+
+Both positional (`soulforge addon …`) and flag (`soulforge --addon …`) forms work. `list`, `ls`, `--list`, `-l` are all equivalent.
+
+## Install locations
+
+| Path | What |
+|------|------|
+| `~/.soulforge/bin/cli-proxy-api` | proxy binary symlink (Windows: `.exe` under `%LOCALAPPDATA%\SoulForge\bin`) |
+| `~/.soulforge/bin/nvim` | neovim binary symlink |
+| `~/.soulforge/installs/cliproxyapi-<version>/` | versioned proxy install |
+| `~/.soulforge/installs/nvim-<version>/` | versioned neovim install |
+
+Install records live under `addons` in `~/.soulforge/config.json`:
+
+```json
+{
+  "addons": {
+    "proxy":  { "installed": true, "version": "1.4.2", "installedAt": "2025-01-15T12:00:00Z" },
+    "neovim": { "installed": true, "installedAt": "2025-01-15T12:00:00Z" }
+  }
+}
+```
+
+## System binaries
+
+If `cli-proxy-api` or `nvim` is already on your `PATH` (Homebrew, apt, scoop, etc.), SoulForge picks it up automatically — you don't need the addon at all. `addon install` will still vendor a separate copy under `~/.soulforge/bin` to insulate against PATH changes; `addon remove` only removes what soulforge vendored, never your system install.
+
+## Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `SOULFORGE_AUTO_INSTALL_ADDONS` | Comma-separated list to install automatically (`proxy,neovim`). |
+| `SOULFORGE_PROXY_VERSION` | Pin a specific CLIProxyAPI version on install. |
+| `SOULFORGE_NO_PROMPT` | Set to `1` to skip the first-run addon wizard. |
+
+## Proxy quickstart
+
+```bash
+soulforge addon install proxy
+soulforge                # then inside the TUI:
+/proxy login             # add a Claude / GPT / Gemini / Grok subscription
+/proxy status            # see active accounts
+```
+
+See the [Proxy provider](/providers/overview#enterprise) entry for how the relay shows up in `/models`.

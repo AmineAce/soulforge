@@ -17,13 +17,13 @@ Or edit `~/.soulforge/config.json`:
 ```json
 {
   "taskRouter": {
-    "spark":      "anthropic/claude-haiku-4",
-    "ember":      "anthropic/claude-sonnet-4-6",
-    "webSearch":  "anthropic/claude-haiku-4",
-    "desloppify": "anthropic/claude-haiku-4",
-    "verify":     "anthropic/claude-haiku-4",
+    "spark":      "anthropic/claude-haiku-4-5",
+    "ember":      "anthropic/claude-sonnet-4-5",
+    "webSearch":  "anthropic/claude-haiku-4-5",
+    "desloppify": "anthropic/claude-haiku-4-5",
+    "verify":     "anthropic/claude-haiku-4-5",
     "compact":    "google/gemini-2.5-flash",
-    "semantic":   "anthropic/claude-haiku-4",
+    "semantic":   "anthropic/claude-haiku-4-5",
     "default":    null
   }
 }
@@ -48,24 +48,24 @@ Or edit `~/.soulforge/config.json`:
   <Tab title="Balanced">
     Strong code, cheap everything else.
     ```json
-    "spark": "anthropic/claude-haiku-4",
-    "ember": "anthropic/claude-sonnet-4-6",
+    "spark": "anthropic/claude-haiku-4-5",
+    "ember": "anthropic/claude-sonnet-4-5",
     "compact": "google/gemini-2.5-flash"
     ```
   </Tab>
   <Tab title="Budget">
     Haiku everywhere. Still very capable for most tasks.
     ```json
-    "spark": "anthropic/claude-haiku-4",
-    "ember": "anthropic/claude-haiku-4",
+    "spark": "anthropic/claude-haiku-4-5",
+    "ember": "anthropic/claude-haiku-4-5",
     "compact": "google/gemini-2.5-flash"
     ```
   </Tab>
   <Tab title="Max quality">
-    Opus for code, Sonnet for exploration.
+    Sonnet for code, Sonnet for exploration too.
     ```json
-    "spark": "anthropic/claude-sonnet-4-6",
-    "ember": "anthropic/claude-opus-4-6",
+    "spark": "anthropic/claude-sonnet-4-5",
+    "ember": "anthropic/claude-sonnet-4-5",
     "compact": "google/gemini-2.5-flash"
     ```
   </Tab>
@@ -73,7 +73,7 @@ Or edit `~/.soulforge/config.json`:
     Same models, one key via LLM Gateway.
     ```json
     "spark": "llmgateway/claude-haiku-4-5",
-    "ember": "llmgateway/claude-sonnet-4-6"
+    "ember": "llmgateway/claude-sonnet-4-5"
     ```
   </Tab>
 </Tabs>
