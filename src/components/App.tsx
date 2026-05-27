@@ -1192,7 +1192,13 @@ export function App({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: narrow trigger — only re-run when nvimError changes
   useEffect(() => {
-    if (nvimError) addSystemMessage(`Neovim error: ${nvimError}`);
+    // Skip the "neovim-not-found" sentinel — Neovim is an opt-in addon,
+    // not a hard requirement. Surfacing it as a red banner on boot scares
+    // users who never asked for the editor. The EditorPanel still shows
+    // its own install hint splash if they open the panel.
+    if (nvimError && nvimError !== "neovim-not-found") {
+      addSystemMessage(`Neovim error: ${nvimError}`);
+    }
   }, [nvimError]);
 
   // Surface a one-time notice when a legacy memory DB was rotated aside on
