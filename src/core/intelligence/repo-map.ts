@@ -5284,6 +5284,16 @@ export class RepoMap {
     const tris = extractPatternTrigrams(pattern);
     if (!tris || tris.length === 0) return null;
 
+    // Backwards-compat guard: an index built before the trigram table existed
+    // (or one still warming up after a fresh scan) has an empty trigrams table.
+    // Returning [] there would be read as a definitive "no matches" — a false
+    // negative. Return null instead so callers fall back to a full scan until
+    // the index is populated. One cheap EXISTS check; negligible at query time.
+    const hasTrigrams = this.db
+      .query<{ x: number }, []>("SELECT 1 AS x FROM trigrams LIMIT 1")
+      .get();
+    if (!hasTrigrams) return null;
+
     // Intersect posting lists, smallest-first for early termination.
     // Build a single SQL with INTERSECT over each trigram's file set.
     const selects = tris.map(() => "SELECT file_id FROM trigrams WHERE trigram = ?");
