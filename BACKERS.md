@@ -87,6 +87,7 @@ One-time supporters at the **$200+ tier** — listed permanently, not just for t
 
 One-time supporters at the $10 / $50 tier. Thank you for tossing a coin in — every one of you powered a few thousand tokens of agent work.
 
+- [@nerminba](https://github.com/nerminba)
 - [@Liiro](https://github.com/Liiro)
 
 ---
