@@ -1,7 +1,8 @@
-import { stat as statAsync, writeFile } from "node:fs/promises";
+import { stat as statAsync } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { markToolWrite, readBufferContent, reloadBuffer } from "../editor/instance.js";
+import { atomicWriteFile } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { emitFileEdited } from "./file-events.js";
 
@@ -210,7 +211,7 @@ export const undoEditTool = {
         return { success: false, output: msg, error: msg };
       }
 
-      await writeFile(filePath, restored, "utf-8");
+      await atomicWriteFile(filePath, restored);
       markToolWrite(filePath);
       emitFileEdited(filePath, restored);
 

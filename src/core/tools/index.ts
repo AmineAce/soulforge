@@ -55,6 +55,7 @@ import { soulAnalyzeTool } from "./soul-analyze.js";
 import { soulFindTool } from "./soul-find.js";
 import { soulGrepTool } from "./soul-grep.js";
 import { soulImpactTool } from "./soul-impact.js";
+import { soulQueryTool } from "./soul-query.js";
 import { taskListTool } from "./task-list.js";
 import { buildWebSearchTool } from "./web-search";
 
@@ -166,6 +167,10 @@ const readFileSpec = z.object({
   ).describe("Line ranges to read. Omit for full file."),
   target: optStr().describe("Symbol type to extract (AST-based). Omit for raw read."),
   name: optStr().describe("Symbol name (required when target is set, except scope)"),
+  ifHash: optStr().describe(
+    "Skip the body if the file still hashes to this value. Pass the `hash:` from a prior read — " +
+      "returns `unchanged:<hash>` instead of re-sending unchanged content.",
+  ),
 });
 
 /** Coerce common weak-model mistakes for the `files` param:
@@ -450,6 +455,7 @@ export function buildTools(
           ranges?: Array<{ start: number; end: number }>;
           target?: string;
           name?: string;
+          ifHash?: string;
         };
         let fileSpecs: FileSpec[];
 
@@ -475,8 +481,8 @@ export function buildTools(
             const hasRanges = spec.ranges && spec.ranges.length > 0;
             const isFullRead = !hasRanges && !spec.target;
 
-            // Cache: skip re-reads
-            if (!args.fresh && fullReadCache.has(normPath)) {
+            // Cache: skip re-reads (ifHash callers want an explicit CAS check)
+            if (!args.fresh && !spec.ifHash && fullReadCache.has(normPath)) {
               if (isFullRead) {
                 return {
                   path: fp,
@@ -528,6 +534,7 @@ export function buildTools(
             const result = await readFileTool.execute({
               path: fp,
               ...(spec.target ? { target: spec.target, name: spec.name } : {}),
+              ...(spec.ifHash ? { ifHash: spec.ifHash } : {}),
               tabId: opts?.tabId,
             });
             if (!result.success && isFullRead) fullReadCache.delete(normPath);
@@ -568,6 +575,10 @@ export function buildTools(
             "1-indexed start line from your last read output. " +
               "The range is derived from oldString line count — lineStart anchors where to look.",
           ),
+        ifHash: optStr().describe(
+          "Optional CAS guard — pass the `hash:` from your last read. Rejects with `concurrent modification` " +
+            "if the file changed, and skips the safety re-read when it matches.",
+        ),
       }),
       execute: deferExecute(async (args) => {
         const gate = await gateOutsideCwd("edit_file", resolve(args.path));
@@ -632,6 +643,10 @@ export function buildTools(
             ),
           )
           .describe("Array of edits to apply atomically"),
+        ifHash: optStr().describe(
+          "Optional CAS guard — pass the `hash:` from your last read. Rejects with `concurrent modification` " +
+            "if the file changed, and skips the safety re-read when it matches.",
+        ),
       }),
       execute: deferExecute(async (args) => {
         const gate = await gateOutsideCwd("multi_edit", resolve(args.path));
@@ -861,6 +876,53 @@ export function buildTools(
       execute: deferExecute((args) => {
         resetReadCounter();
         return soulFindTool.createExecute(opts?.repoMap)(args);
+      }),
+    }),
+
+    soul_query: tool({
+      ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
+      description: soulQueryTool.description,
+      inputSchema: z.object({
+        pipeline: z
+          .preprocess(
+            coerceJsonArray,
+            z.array(
+              z.object({
+                op: z
+                  .enum(["search", "find", "filter", "deps", "outline", "read", "limit"])
+                  .describe("Pipeline stage operation"),
+                pattern: optStr().describe("Literal substring (op:search)"),
+                query: optStr().describe("Fuzzy query (op:find)"),
+                ext: optStr().describe("Extension filter e.g. '.ts' (op:filter)"),
+                pathContains: optStr().describe("Path substring filter (op:filter)"),
+                direction: z
+                  .enum(["imports", "imported_by"])
+                  .nullable()
+                  .optional()
+                  .transform(nullToUndef)
+                  .describe("Dependency direction (op:deps)"),
+                n: z
+                  .preprocess(coerceInt, z.number())
+                  .nullable()
+                  .optional()
+                  .transform(nullToUndef)
+                  .describe("Cap count (op:limit)"),
+                ranges: z
+                  .object({ start: z.number(), end: z.number() })
+                  .nullable()
+                  .optional()
+                  .transform(nullToUndef)
+                  .describe("Line range (op:read)"),
+              }),
+            ),
+          )
+          .describe("Ordered pipeline stages — each narrows a working file-set for the next."),
+      }),
+      execute: deferExecute((args) => {
+        resetReadCounter();
+        // biome-ignore lint/suspicious/noExplicitAny: pipeline ops form a discriminated union at runtime
+        return soulQueryTool.createExecute(opts?.repoMap)(args as any);
       }),
     }),
 
@@ -1239,7 +1301,7 @@ export function buildTools(
             "search_symbols",
           ])
           .describe(
-            "definition=returns file:line of definition, references=returns all file:line usages, " +
+            "definition=returns file:line of definition, references=returns file:line usages each annotated with enclosing function/class, " +
               "call_hierarchy=returns callers/callees with file:line, implementation=returns concrete implementors, " +
               "type_hierarchy=returns super/subtypes, symbols/imports/exports=returns file contents, " +
               "workspace_symbols/search_symbols=returns matching symbols across all files",
@@ -2115,7 +2177,7 @@ export function buildSubagentExploreTools(opts?: {
             "search_symbols",
           ])
           .describe(
-            "definition=returns file:line of definition, references=returns all file:line usages, " +
+            "definition=returns file:line of definition, references=returns file:line usages each annotated with enclosing function/class, " +
               "call_hierarchy=returns callers/callees with file:line, implementation=returns concrete implementors, " +
               "type_hierarchy=returns super/subtypes, symbols/imports/exports=returns file contents, " +
               "workspace_symbols/search_symbols=returns matching symbols across all files",

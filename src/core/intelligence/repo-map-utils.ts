@@ -1,8 +1,9 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { IGNORED_DIRS } from "../context/file-tree.js";
 import { isForbidden } from "../security/forbidden.js";
+import { buildIgnoreMatcher, type IgnoreMatcher } from "./ignore.js";
 import type { Language, SymbolKind } from "./types.js";
 import { BARE_FILENAME_TO_LANGUAGE, detectLanguageFromPath, EXT_TO_LANGUAGE } from "./types.js";
 
@@ -340,10 +341,15 @@ export async function collectFiles(dir: string, depth = 0): Promise<CollectResul
           "Opened in home directory or system root — no files indexed. Open a project directory instead.",
       };
   }
-  // Fallback walk — shared accumulator so the 60s timeout returns partial results
+  // Fallback walk (non-git repos): git ls-files isn't available, so honor
+  // .gitignore + .soulforgeignore ourselves on top of the hardcoded IGNORED_DIRS.
+  const ignore = buildIgnoreMatcher(
+    await readIgnoreFile(join(dir, ".gitignore")),
+    await readIgnoreFile(join(dir, ".soulforgeignore")),
+  );
   const collected: CollectedFile[] = [];
   let hitCap = false;
-  const walkDone = collectFilesWalk(dir, depth, undefined, collected).then(() => {
+  const walkDone = collectFilesWalk(dir, depth, undefined, collected, dir, ignore).then(() => {
     hitCap = collected.length >= WALK_FILE_CAP;
   });
   const timedOut = await Promise.race([
@@ -389,7 +395,8 @@ async function collectFilesViaGit(dir: string): Promise<CollectedFile[] | null> 
       if (isForbidden(fullPath)) continue;
       try {
         const s = await stat(fullPath);
-        if (s.size < MAX_FILE_SIZE) files.push({ path: fullPath, mtimeMs: s.mtimeMs });
+        if (s.size < MAX_FILE_SIZE)
+          files.push({ path: fullPath, mtimeMs: s.mtimeMs, size: s.size });
       } catch {}
       if (files.length % 50 === 0) await new Promise<void>((r) => setTimeout(r, 0));
     }
@@ -403,12 +410,23 @@ async function collectFilesViaGit(dir: string): Promise<CollectedFile[] | null> 
 // Prevents scanning millions of files when opened in $HOME or a monorepo root.
 const WALK_FILE_CAP = 50_000;
 
+/** Read an ignore file, returning null if absent/unreadable. */
+async function readIgnoreFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 /** Fallback: manual directory walk for non-git repos. */
 async function collectFilesWalk(
   dir: string,
   depth: number,
-  counter?: { n: number },
-  out?: CollectedFile[],
+  counter: { n: number } | undefined,
+  out: CollectedFile[] | undefined,
+  rootDir: string,
+  ignore: IgnoreMatcher,
 ): Promise<CollectedFile[]> {
   if (depth > MAX_DEPTH) return [];
   const ctx = counter ?? { n: 0 };
@@ -422,17 +440,19 @@ async function collectFilesWalk(
         if (!entry.isFile() || !isIndexablePath(entry.name)) continue;
       }
       const fullPath = join(dir, entry.name);
+      const rel = relative(rootDir, fullPath);
       if (entry.isDirectory()) {
-        if (!IGNORED_DIRS.has(entry.name)) {
-          await collectFilesWalk(fullPath, depth + 1, ctx, files);
+        if (!IGNORED_DIRS.has(entry.name) && !ignore.ignores(rel, true)) {
+          await collectFilesWalk(fullPath, depth + 1, ctx, files, rootDir, ignore);
         }
       } else if (entry.isFile()) {
         if (isForbidden(fullPath)) continue;
+        if (ignore.ignores(rel, false)) continue;
         if (isIndexablePath(entry.name)) {
           try {
             const s = await stat(fullPath);
             if (s.size < MAX_FILE_SIZE) {
-              files.push({ path: fullPath, mtimeMs: s.mtimeMs });
+              files.push({ path: fullPath, mtimeMs: s.mtimeMs, size: s.size });
               ctx.n++;
             }
           } catch {}
@@ -447,6 +467,7 @@ async function collectFilesWalk(
 interface CollectedFile {
   path: string;
   mtimeMs: number;
+  size: number;
 }
 
 const MAX_FILE_SIZE = 500_000;

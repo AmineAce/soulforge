@@ -360,3 +360,24 @@ export function matchGlob(input: string, pattern: string): boolean {
   const flags = IS_WIN ? "si" : "s";
   return new RegExp(`^${escaped}$`, flags).test(str);
 }
+/**
+ * Crash-safe file write: write to a sibling temp file, then atomically rename
+ * over the target via {@link safeRename}. A crash mid-write leaves the original
+ * intact (the temp file is orphaned, never a half-written target).
+ *
+ * Temp file lives in the SAME directory as the target so the rename stays on one
+ * filesystem (cross-device rename → EXDEV). Works on mac/linux/windows.
+ */
+export async function atomicWriteFile(targetPath: string, data: string): Promise<void> {
+  const { writeFile, unlink } = await import("node:fs/promises");
+  const tmpPath = `${targetPath}.sf-${process.pid.toString(36)}-${Date.now().toString(36)}.tmp`;
+  try {
+    await writeFile(tmpPath, data, "utf-8");
+    safeRename(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      await unlink(tmpPath);
+    } catch {}
+    throw err;
+  }
+}

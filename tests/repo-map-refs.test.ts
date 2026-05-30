@@ -169,4 +169,14 @@ describe("call graph", () => {
     expect(stats.calls).toBeGreaterThan(0);
     expect(typeof stats.calls).toBe("number");
   });
+
+  it("getEnclosingSymbols returns ranged symbols for a file", () => {
+    const syms = repoMap.getEnclosingSymbols("src/app.ts");
+    expect(syms.length).toBeGreaterThan(0);
+    const names = syms.map((s) => s.name);
+    expect(names).toContain("renderTimestamp");
+    for (const s of syms) {
+      expect(s.endLine).toBeGreaterThanOrEqual(s.line);
+    }
+  });
 });

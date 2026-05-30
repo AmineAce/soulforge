@@ -1,9 +1,10 @@
-import { readFile, stat as statAsync, writeFile } from "node:fs/promises";
+import { readFile, stat as statAsync } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import { memoryHintComposite } from "../memory/hints.js";
+import { atomicWriteFile } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { displayPath } from "../utils/path-display.js";
 import { buildRichEditError, fuzzyWhitespaceMatch } from "./edit-file.js";
@@ -16,6 +17,7 @@ import {
   countOccurrences,
   startPreEditDiagnostics,
 } from "./post-edit-helpers.js";
+import { contentHash } from "./tool-utils.js";
 import { consumeAstEditNudge } from "./ts-project-detect.js";
 
 interface EditEntry {
@@ -27,6 +29,7 @@ interface EditEntry {
 interface MultiEditArgs {
   path: string;
   edits: EditEntry[];
+  ifHash?: string;
   tabId?: string;
 }
 
@@ -186,18 +189,36 @@ export const multiEditTool = {
 
       const diagsPromise = startPreEditDiagnostics(filePath);
 
-      // CAS: verify file hasn't been modified since we read it
-      const currentOnDisk = await readFile(filePath, "utf-8");
-      if (currentOnDisk !== originalContent) {
-        const msg =
-          "File was modified concurrently since last read. NO edits were applied (atomic rollback). Re-read and retry ALL edits.";
-        return { success: false, output: msg, error: "concurrent modification (0 edits applied)" };
+      // CAS: verify file hasn't been modified since we read it.
+      // ifHash trusts the caller's last-read hash against originalContent (read this call) —
+      // skips the extra disk read.
+      if (args.ifHash) {
+        if (contentHash(originalContent) !== args.ifHash) {
+          const msg =
+            "ifHash mismatch — file changed since your last read. NO edits were applied (atomic rollback). Re-read and retry ALL edits with the new hash.";
+          return {
+            success: false,
+            output: msg,
+            error: "concurrent modification (0 edits applied)",
+          };
+        }
+      } else {
+        const currentOnDisk = await readFile(filePath, "utf-8");
+        if (currentOnDisk !== originalContent) {
+          const msg =
+            "File was modified concurrently since last read. NO edits were applied (atomic rollback). Re-read and retry ALL edits.";
+          return {
+            success: false,
+            output: msg,
+            error: "concurrent modification (0 edits applied)",
+          };
+        }
       }
 
       // Push single undo entry for the entire batch — write immediately
       pushEdit(filePath, originalContent, content, args.tabId);
 
-      await writeFile(filePath, content, "utf-8");
+      await atomicWriteFile(filePath, content);
       markToolWrite(filePath);
       emitFileEdited(filePath, content);
 

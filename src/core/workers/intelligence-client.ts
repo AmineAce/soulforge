@@ -894,4 +894,14 @@ export class IntelligenceClient extends WorkerClient {
   getEntryPointsCached(): string[] {
     return this._entryPointsCache ?? [];
   }
+
+  async getEnclosingSymbols(
+    relPath: string,
+  ): Promise<Array<{ name: string; kind: string; line: number; endLine: number }>> {
+    return this.call("getEnclosingSymbols", relPath);
+  }
+
+  async searchTrigramCandidates(pattern: string, limit?: number): Promise<string[] | null> {
+    return this.call("searchTrigramCandidates", pattern, limit);
+  }
 }

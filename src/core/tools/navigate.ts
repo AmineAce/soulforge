@@ -377,7 +377,13 @@ export const navigateTool = {
             refs.length > MAX_REFS
               ? `\n+ ${String(refs.length - MAX_REFS)} more — narrow your query`
               : "";
-          const refsOutput = `References to '${symbol}' (${String(refs.length)}):\n${capped.map(formatLocation).join("\n")}${overflow}`;
+
+          // Fused references + scope: annotate each hit with its enclosing
+          // function/class so the agent doesn't follow up with a per-site
+          // definition/outline lookup. One symbol-range query per file (soul map
+          // cache, zero file I/O), guarded to ≤25 files to bound work.
+          const refLines = await formatReferencesWithScope(capped, client);
+          const refsOutput = `References to '${symbol}' (${String(refs.length)}):\n${refLines}${overflow}`;
           const refsAnnotation = await buildAnnotation(resolvedFile, repoMap);
           return {
             success: true,
@@ -669,3 +675,60 @@ export const navigateTool = {
     }
   },
 };
+/**
+ * Format reference locations, annotating each with its enclosing function/class.
+ * Groups hits by file and does one symbol-range lookup per file (soul-map cached).
+ * Falls back to plain `file:line` when scope data is unavailable or too many files.
+ */
+async function formatReferencesWithScope(
+  refs: SourceLocation[],
+  client: IntelligenceClient | null,
+): Promise<string> {
+  const byFile = new Map<string, number[]>();
+  for (const r of refs) {
+    const arr = byFile.get(r.file);
+    if (arr) arr.push(r.line);
+    else byFile.set(r.file, [r.line]);
+  }
+
+  const cwd = process.cwd();
+  const rel = (f: string) => (f.startsWith(`${cwd}/`) ? f.slice(cwd.length + 1) : f);
+
+  type Range = { name: string; kind: string; line: number; endLine: number | null };
+  const scopes = new Map<string, Range[]>();
+  if (client && byFile.size <= 25) {
+    await Promise.all(
+      [...byFile.keys()].map(async (f) => {
+        try {
+          const ranges = await client.getFileSymbolRanges(rel(f));
+          if (ranges && ranges.length > 0) scopes.set(f, ranges);
+        } catch {}
+      }),
+    );
+  }
+
+  const enclosing = (f: string, line: number): Range | null => {
+    const ranges = scopes.get(f);
+    if (!ranges) return null;
+    let best: Range | null = null;
+    for (const s of ranges) {
+      const end = s.endLine ?? s.line;
+      if (s.line <= line && end >= line && (!best || s.line > best.line)) best = s;
+    }
+    return best;
+  };
+
+  const out: string[] = [];
+  for (const [f, lns] of byFile) {
+    lns.sort((a, b) => a - b);
+    if (!scopes.has(f)) {
+      for (const ln of lns) out.push(`${rel(f)}:${String(ln)}`);
+      continue;
+    }
+    for (const ln of lns) {
+      const sc = enclosing(f, ln);
+      out.push(sc ? `${rel(f)}:${String(ln)} — ${sc.kind} ${sc.name}` : `${rel(f)}:${String(ln)}`);
+    }
+  }
+  return out.join("\n");
+}

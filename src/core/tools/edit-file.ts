@@ -1,9 +1,10 @@
-import { mkdir, readFile, stat as statAsync, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat as statAsync } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types";
 import { analyzeFile } from "../analysis/complexity";
 import { markToolWrite, reloadBuffer } from "../editor/instance";
 import { memoryHintComposite } from "../memory/hints.js";
+import { atomicWriteFile } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { displayPath } from "../utils/path-display.js";
 import { pushEdit } from "./edit-stack.js";
@@ -15,6 +16,7 @@ import {
   countOccurrences,
   startPreEditDiagnostics,
 } from "./post-edit-helpers.js";
+import { contentHash } from "./tool-utils.js";
 import { consumeAstEditNudge } from "./ts-project-detect.js";
 
 interface EditFileArgs {
@@ -22,6 +24,7 @@ interface EditFileArgs {
   oldString: string;
   newString: string;
   lineStart?: number;
+  ifHash?: string;
   tabId?: string;
 }
 
@@ -160,22 +163,34 @@ async function applyEdit(
   editLine: number,
   label: string,
   tabId?: string,
+  ifHash?: string,
 ): Promise<ToolResult> {
   const beforeMetrics = analyzeFile(content);
   const afterMetrics = analyzeFile(updated);
 
   const diagsPromise = startPreEditDiagnostics(filePath);
 
-  // CAS: verify file hasn't been modified since we read it (prevents concurrent edit races)
-  const currentOnDisk = await readFile(filePath, "utf-8");
-  if (currentOnDisk !== content) {
-    const msg = "File was modified concurrently since last read. Re-read and retry.";
-    return { success: false, output: msg, error: "concurrent modification" };
+  // CAS: verify file hasn't been modified since we read it (prevents concurrent edit races).
+  // When ifHash is supplied we trust the caller's last-read hash against `content` and
+  // skip the extra disk read — `content` was already read this call for the match.
+  if (ifHash) {
+    if (contentHash(content) !== ifHash) {
+      const msg =
+        "ifHash mismatch — file changed since your last read. Re-read and retry with the new hash.";
+      return { success: false, output: msg, error: "concurrent modification" };
+    }
+  } else {
+    const currentOnDisk = await readFile(filePath, "utf-8");
+    if (currentOnDisk !== content) {
+      const msg = "File was modified concurrently since last read. Re-read and retry.";
+      return { success: false, output: msg, error: "concurrent modification" };
+    }
   }
 
-  // Write file immediately — don't wait for diagnostics
+  // Write file immediately — don't wait for diagnostics.
+  // atomicWriteFile = tmp+rename so a crash mid-write never corrupts the target.
   pushEdit(filePath, content, updated, tabId);
-  await writeFile(filePath, updated, "utf-8");
+  await atomicWriteFile(filePath, updated);
   markToolWrite(filePath);
   emitFileEdited(filePath, updated);
 
@@ -251,7 +266,7 @@ export const editFileTool = {
           dirCreated = true;
         }
         await mkdir(dir, { recursive: true });
-        await writeFile(filePath, newStr, "utf-8");
+        await atomicWriteFile(filePath, newStr);
         markToolWrite(filePath);
         emitFileEdited(filePath, newStr);
         const openedInEditor = await reloadBuffer(filePath);
@@ -312,7 +327,15 @@ export const editFileTool = {
             const before = lines.slice(0, range.start);
             const after = lines.slice(range.end);
             const updated = [...before, ...newLines, ...after].join("\n");
-            return applyEdit(filePath, content, updated, args.lineStart, label, args.tabId);
+            return applyEdit(
+              filePath,
+              content,
+              updated,
+              args.lineStart,
+              label,
+              args.tabId,
+              args.ifHash,
+            );
           }
 
           // Try fuzzy match against the range content
@@ -321,7 +344,15 @@ export const editFileTool = {
             const before = lines.slice(0, range.start);
             const after = lines.slice(range.end);
             const updated = [...before, ...rangeFixed.newStr.split("\n"), ...after].join("\n");
-            return applyEdit(filePath, content, updated, args.lineStart, label, args.tabId);
+            return applyEdit(
+              filePath,
+              content,
+              updated,
+              args.lineStart,
+              label,
+              args.tabId,
+              args.ifHash,
+            );
           }
 
           // oldString doesn't match the range — FAIL instead of blindly applying.
@@ -352,6 +383,7 @@ export const editFileTool = {
               matchLine,
               " [line range invalid, used string match]",
               args.tabId,
+              args.ifHash,
             );
           }
         }
@@ -391,7 +423,15 @@ export const editFileTool = {
       const editLine = matchIdx >= 0 ? content.slice(0, matchIdx).split("\n").length : 1;
       const updated =
         content.slice(0, matchIdx) + resolvedNew + content.slice(matchIdx + resolvedOld.length);
-      const result = await applyEdit(filePath, content, updated, editLine, "", args.tabId);
+      const result = await applyEdit(
+        filePath,
+        content,
+        updated,
+        editLine,
+        "",
+        args.tabId,
+        args.ifHash,
+      );
       if (result.success) {
         result.output +=
           "\n! lineStart not provided — pass lineStart from read output to make edits escape-proof.";

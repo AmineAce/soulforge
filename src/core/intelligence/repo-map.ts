@@ -33,8 +33,17 @@ import {
   PAGERANK_DAMPING,
   PAGERANK_ITERATIONS,
 } from "./repo-map-utils.js";
+import {
+  extractContentTrigrams,
+  extractPatternTrigrams,
+  MAX_POSTINGS_PER_TRIGRAM,
+} from "./trigram.js";
 import type { Language, SymbolKind } from "./types.js";
 import { detectLanguageFromPath } from "./types.js";
+
+/** Files larger than this are excluded from the trigram index (minified/generated).
+ *  Matches ripgrep's --max-filesize=256K cap used by soul_grep. */
+const TRIGRAM_MAX_FILE_BYTES = 256 * 1024;
 
 interface FileRow {
   id: number;
@@ -314,6 +323,24 @@ export class RepoMap {
       CREATE INDEX IF NOT EXISTS idx_calls_callee_file ON calls(callee_file_id);
     `);
 
+    // Trigram substring index — packed u24 trigram -> file_id postings.
+    // WITHOUT ROWID keeps the composite-PK table compact; the index is the table.
+    // Enables sub-millisecond candidate narrowing for soul_grep at 10k-50k+ files.
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS trigrams (
+        trigram INTEGER NOT NULL,
+        file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+        PRIMARY KEY (trigram, file_id)
+      ) WITHOUT ROWID;
+    `);
+    this.db.run("CREATE INDEX IF NOT EXISTS idx_trigrams_file ON trigrams(file_id)");
+
+    // Migration: size_bytes enables (mtime,size) re-index gating — skip re-hashing
+    // unchanged files on incremental rescans. 0 on legacy rows forces one re-index.
+    try {
+      this.db.run("ALTER TABLE files ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0");
+    } catch {}
+
     this.migrateSemanticSource();
     this.migrateSemanticNoCascade();
     this.backfillSummaryPaths();
@@ -509,26 +536,45 @@ export class RepoMap {
         files = allFiles;
       }
 
-      const existingFiles = new Map<string, { id: number; mtime_ms: number }>();
+      const existingFiles = new Map<string, { id: number; mtime_ms: number; size_bytes: number }>();
       for (const row of this.db
-        .query<{ id: number; path: string; mtime_ms: number }, []>(
-          "SELECT id, path, mtime_ms FROM files",
+        .query<{ id: number; path: string; mtime_ms: number; size_bytes: number }, []>(
+          "SELECT id, path, mtime_ms, size_bytes FROM files",
         )
         .all()) {
-        existingFiles.set(row.path, { id: row.id, mtime_ms: row.mtime_ms });
+        existingFiles.set(row.path, {
+          id: row.id,
+          mtime_ms: row.mtime_ms,
+          size_bytes: row.size_bytes,
+        });
       }
 
       const currentPaths = new Set<string>();
-      const toIndex: { absPath: string; relPath: string; mtime: number; language: Language }[] = [];
+      const toIndex: {
+        absPath: string;
+        relPath: string;
+        mtime: number;
+        language: Language;
+        size: number;
+      }[] = [];
 
       for (const file of files) {
         const relPath = relative(this.cwd, file.path);
         currentPaths.add(relPath);
 
         const existing = existingFiles.get(relPath);
-        if (existing && existing.mtime_ms === file.mtimeMs) continue;
+        // Gate on (mtime, size): unchanged on both → skip re-index entirely.
+        // size catches same-mtime content swaps; legacy rows (size_bytes=0) re-index once.
+        if (existing && existing.mtime_ms === file.mtimeMs && existing.size_bytes === file.size)
+          continue;
         const language = detectLanguageFromPath(file.path);
-        toIndex.push({ absPath: file.path, relPath, mtime: file.mtimeMs, language });
+        toIndex.push({
+          absPath: file.path,
+          relPath,
+          mtime: file.mtimeMs,
+          language,
+          size: file.size,
+        });
       }
 
       const stale = [...existingFiles.keys()].filter((p) => !currentPaths.has(p));
@@ -555,7 +601,13 @@ export class RepoMap {
           const file = toIndex[i];
           if (file) {
             try {
-              await this.indexFile(file.absPath, file.relPath, file.mtime, file.language);
+              await this.indexFile(
+                file.absPath,
+                file.relPath,
+                file.mtime,
+                file.language,
+                file.size,
+              );
             } catch (err) {
               this.indexErrors++;
               if (this.indexErrors <= 5) {
@@ -619,9 +671,9 @@ export class RepoMap {
     }
   }
 
-  private async applyFileCap(
-    files: Array<{ path: string; mtimeMs: number }>,
-  ): Promise<Array<{ path: string; mtimeMs: number }>> {
+  private async applyFileCap<T extends { path: string; mtimeMs: number }>(
+    files: T[],
+  ): Promise<T[]> {
     const gitRecency = new Map<string, number>();
     if (this.detectGit()) {
       try {
@@ -646,19 +698,16 @@ export class RepoMap {
       }
     }
 
-    const sorted = files
-      .map((f) => ({
-        path: f.path,
-        mtimeMs: f.mtimeMs,
-        gitRank: gitRecency.get(relative(this.cwd, f.path)),
-      }))
-      .sort((a, b) => {
-        const aGit = a.gitRank !== undefined;
-        const bGit = b.gitRank !== undefined;
-        if (aGit !== bGit) return aGit ? -1 : 1;
-        if (aGit && bGit) return (a.gitRank as number) - (b.gitRank as number);
-        return b.mtimeMs - a.mtimeMs;
-      });
+    const rankFor = (f: T) => gitRecency.get(relative(this.cwd, f.path));
+    const sorted = [...files].sort((a, b) => {
+      const ra = rankFor(a);
+      const rb = rankFor(b);
+      const aGit = ra !== undefined;
+      const bGit = rb !== undefined;
+      if (aGit !== bGit) return aGit ? -1 : 1;
+      if (aGit && bGit) return (ra as number) - (rb as number);
+      return b.mtimeMs - a.mtimeMs;
+    });
 
     return sorted.slice(0, this.maxFiles);
   }
@@ -687,6 +736,7 @@ export class RepoMap {
     relPath: string,
     mtime: number,
     language: Language,
+    size = 0,
   ): Promise<void> {
     const existing = this.db
       .query<{ id: number }, [string]>("SELECT id FROM files WHERE path = ?")
@@ -706,6 +756,7 @@ export class RepoMap {
         this.db.query("DELETE FROM shape_hashes WHERE file_id = ?").run(existing.id);
         this.db.query("DELETE FROM token_signatures WHERE file_id = ?").run(existing.id);
         this.db.query("DELETE FROM token_fragments WHERE file_id = ?").run(existing.id);
+        this.db.query("DELETE FROM trigrams WHERE file_id = ?").run(existing.id);
         this.db
           .query("DELETE FROM edges WHERE source_file_id = ? OR target_file_id = ?")
           .run(existing.id, existing.id);
@@ -744,15 +795,15 @@ export class RepoMap {
     if (existing) {
       this.db
         .query(
-          "UPDATE files SET mtime_ms = ?, language = ?, line_count = ?, symbol_count = ? WHERE id = ?",
+          "UPDATE files SET mtime_ms = ?, language = ?, line_count = ?, symbol_count = ?, size_bytes = ? WHERE id = ?",
         )
-        .run(mtime, language, lineCount, symbolCount, existing.id);
+        .run(mtime, language, lineCount, symbolCount, size, existing.id);
     } else {
       this.db
         .query(
-          "INSERT INTO files (path, mtime_ms, language, line_count, symbol_count) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO files (path, mtime_ms, language, line_count, symbol_count, size_bytes) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .run(relPath, mtime, language, lineCount, symbolCount);
+        .run(relPath, mtime, language, lineCount, symbolCount, size);
     }
 
     const fileId =
@@ -982,6 +1033,13 @@ export class RepoMap {
         });
         tx();
       }
+    }
+
+    // Trigram substring index — covers ALL files (code + non-code) so soul_grep
+    // can narrow literal searches at scale. Skips very large files (minified /
+    // generated) that bloat the index and that rg already skips via --max-filesize.
+    if (content.length <= TRIGRAM_MAX_FILE_BYTES) {
+      this.indexTrigrams(fileId, content);
     }
 
     // Only extract identifiers from code files — non-code files (JSON, YAML, MD, etc.)
@@ -2806,7 +2864,7 @@ export class RepoMap {
       for (const [absPath, { relPath, language }] of batch) {
         try {
           const st = await statAsync(absPath);
-          this.indexFile(absPath, relPath, st.mtimeMs, language);
+          this.indexFile(absPath, relPath, st.mtimeMs, language, st.size);
         } catch (e) {
           this.onError?.(
             `reindex failed for ${relPath}: ${e instanceof Error ? e.message : String(e)}`,
@@ -2832,13 +2890,16 @@ export class RepoMap {
   recheckModifiedFiles(): void {
     if (!this.ready) return;
     const files = this.db
-      .query<{ path: string; mtime_ms: number }, []>("SELECT path, mtime_ms FROM files")
+      .query<{ path: string; mtime_ms: number; size_bytes: number }, []>(
+        "SELECT path, mtime_ms, size_bytes FROM files",
+      )
       .all();
     for (const f of files) {
       const absPath = join(this.cwd, f.path);
       try {
         const st = statSync(absPath);
-        if (st.mtimeMs !== f.mtime_ms) {
+        // Re-index when mtime OR size changed (size catches same-mtime edits).
+        if (st.mtimeMs !== f.mtime_ms || st.size !== f.size_bytes) {
           this.onFileChanged(absPath);
         }
       } catch {
@@ -5163,5 +5224,71 @@ export class RepoMap {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * All symbols in a file that carry a line range, regardless of export status
+   * or kind — used to find the enclosing scope of an arbitrary line (e.g. a
+   * reference call site). Unlike getFileSymbolRanges this includes non-exported
+   * functions, methods, and variable/arrow bindings.
+   */
+  getEnclosingSymbols(relPath: string): Array<{
+    name: string;
+    kind: string;
+    line: number;
+    endLine: number;
+  }> {
+    return this.db
+      .query<{ name: string; kind: string; line: number; end_line: number }, [string]>(
+        `SELECT s.name, s.kind, s.line, s.end_line
+         FROM symbols s JOIN files f ON f.id = s.file_id
+         WHERE f.path = ? AND s.end_line >= s.line
+         ORDER BY s.line
+         LIMIT 2000`,
+      )
+      .all(relPath)
+      .map((r) => ({ name: r.name, kind: r.kind, line: r.line, endLine: r.end_line }));
+  }
+
+  /**
+   * Populate the trigram index for one file. Caps the number of distinct
+   * trigrams stored per file to bound index size; common trigrams that already
+   * have MAX_POSTINGS_PER_TRIGRAM files are skipped (poor selectivity anyway).
+   */
+  private indexTrigrams(fileId: number, content: string): void {
+    const trigrams = extractContentTrigrams(content);
+    if (trigrams.size === 0) return;
+    const insert = this.db.prepare(
+      "INSERT OR IGNORE INTO trigrams (trigram, file_id) VALUES (?, ?)",
+    );
+    const countFor = this.db.prepare<{ c: number }, [number]>(
+      "SELECT COUNT(*) AS c FROM trigrams WHERE trigram = ?",
+    );
+    const tx = this.db.transaction(() => {
+      for (const tri of trigrams) {
+        const existing = countFor.get(tri)?.c ?? 0;
+        if (existing >= MAX_POSTINGS_PER_TRIGRAM) continue;
+        insert.run(tri, fileId);
+      }
+    });
+    tx();
+  }
+
+  /**
+   * Return candidate file paths that may contain the given literal pattern,
+   * by intersecting trigram posting lists. Returns null when the pattern is
+   * unsuitable for trigram filtering (caller should fall back to a full scan).
+   * The result is a SUPERSET — the caller still runs the real matcher.
+   */
+  searchTrigramCandidates(pattern: string, limit = 5000): string[] | null {
+    const tris = extractPatternTrigrams(pattern);
+    if (!tris || tris.length === 0) return null;
+
+    // Intersect posting lists, smallest-first for early termination.
+    // Build a single SQL with INTERSECT over each trigram's file set.
+    const selects = tris.map(() => "SELECT file_id FROM trigrams WHERE trigram = ?");
+    const sql = `SELECT f.path FROM files f WHERE f.id IN (${selects.join(" INTERSECT ")}) LIMIT ?`;
+    const rows = this.db.query<{ path: string }, (number | number)[]>(sql).all(...tris, limit);
+    return rows.map((r) => r.path);
   }
 }

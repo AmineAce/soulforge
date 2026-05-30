@@ -28,3 +28,11 @@ export function deriveTool<T extends object>(tool: T, overrides?: Partial<T>): T
   if (overrides) Object.assign(derived, overrides);
   return derived;
 }
+/**
+ * Fast, stable content hash for change-detection / CAS preconditions.
+ * Bun's native non-crypto hasher; hex string is the agent-facing `hash:` token.
+ * Same input → same output across mac/linux/windows (no platform dependence).
+ */
+export function contentHash(s: string): string {
+  return Bun.hash(s).toString(16);
+}

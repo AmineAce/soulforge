@@ -10,6 +10,7 @@ import { isForbidden } from "../security/forbidden.js";
 import { getIOClient, type ReadFileResult } from "../workers/io-client.js";
 import { binaryHint } from "./binary-detect.js";
 import { emitFileRead } from "./file-events.js";
+import { contentHash } from "./tool-utils.js";
 
 function toRelPath(abs: string): string {
   const cwd = process.cwd();
@@ -24,6 +25,7 @@ interface ReadFileArgs {
   endLine?: number;
   target?: ReadTarget;
   name?: string;
+  ifHash?: string;
   tabId?: string;
 }
 
@@ -125,12 +127,24 @@ async function readViaWorker(filePath: string, args: ReadFileArgs): Promise<Tool
     }
   }
 
+  // CAS short-circuit: caller already has this exact content — skip the body.
+  if (args.ifHash && args.ifHash === result.hash) {
+    return {
+      success: true,
+      output: `unchanged:${result.hash} (${String(result.totalLines)} lines) — content already in your context, not re-sent.`,
+    };
+  }
+
   emitFileRead(filePath);
 
   const lineCount = result.numbered.split("\n").length;
   const isRangeRead = args.startLine != null || args.endLine != null;
 
-  const tail = memoryHintForPaths([toRelPath(filePath)], "read", args.tabId);
+  // Empty range read (startLine past EOF / inverted range) → no body, no footer.
+  const tail =
+    result.numbered === ""
+      ? ""
+      : `\nhash:${result.hash}${memoryHintForPaths([toRelPath(filePath)], "read", args.tabId)}`;
 
   if (!isRangeRead && lineCount > SMART_TRUNCATE_LINES) {
     const cutoffLine = result.start + SMART_TRUNCATE_LINES;
@@ -209,6 +223,16 @@ async function readOnMainThread(filePath: string, args: ReadFileArgs): Promise<T
   }
 
   const content = await readBufferContent(filePath);
+  const fileHash = contentHash(content);
+
+  // CAS short-circuit: caller already has this exact content — skip the body.
+  if (args.ifHash && args.ifHash === fileHash) {
+    return {
+      success: true,
+      output: `unchanged:${fileHash} (${String(content.split("\n").length)} lines) — content already in your context, not re-sent.`,
+    };
+  }
+
   const lines = content.split("\n");
 
   const start = (args.startLine ?? 1) - 1;
@@ -232,7 +256,10 @@ async function readOnMainThread(filePath: string, args: ReadFileArgs): Promise<T
   if (truncated) {
     output += `\n\n(File has ${String(totalLines)} lines. Showing first ${String(MAX_READ_LINES)}. Use ranges:[{start:${String(start + MAX_READ_LINES)}, end:N}] to continue.)`;
   }
-  output += memoryHintForPaths([toRelPath(filePath)], "read", args.tabId);
+  // Empty range read (startLine past EOF / inverted range) → no body, no footer.
+  if (numbered !== "") {
+    output += `\nhash:${fileHash}${memoryHintForPaths([toRelPath(filePath)], "read", args.tabId)}`;
+  }
 
   return { success: true, output };
 }
@@ -244,7 +271,8 @@ export const readFileTool = {
     "Ranges go INSIDE each file object. Omit ranges for full file. " +
     "AST extraction: {path:'c.ts', target:'function', name:'foo'}. All reads run in parallel. " +
     "For context around a range, widen start/end (e.g. start-10, end+10). " +
-    "To find call sites, use navigate(references) instead. Skip re-reads.",
+    "To find call sites, use navigate(references) instead. Skip re-reads. " +
+    "Each read returns a `hash:` footer — pass it back as ifHash to get `unchanged:` instead of re-sending identical content.",
   execute: async (args: ReadFileArgs): Promise<ToolResult> => {
     try {
       const filePath = resolve(args.path);

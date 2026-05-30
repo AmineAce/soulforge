@@ -63,7 +63,14 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
       })
       .join("\n");
 
-    return { ok: true, numbered, totalLines, truncated, start };
+    return {
+      ok: true,
+      numbered,
+      totalLines,
+      truncated,
+      start,
+      hash: Bun.hash(content).toString(16),
+    };
   },
 
   // ── Shell Output Compression ───────────────────────────────────────

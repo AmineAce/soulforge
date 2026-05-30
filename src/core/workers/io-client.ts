@@ -39,7 +39,14 @@ interface LoadSessionResult {
 }
 
 export type ReadFileResult =
-  | { ok: true; numbered: string; totalLines: number; truncated: boolean; start: number }
+  | {
+      ok: true;
+      numbered: string;
+      totalLines: number;
+      truncated: boolean;
+      start: number;
+      hash: string;
+    }
   | { error: "directory"; message: string }
   | { error: "binary"; ext: string; sizeStr: string }
   | { error: "too_large"; sizeStr: string }
