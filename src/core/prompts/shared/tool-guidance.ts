@@ -3,6 +3,7 @@ A Soul Map is loaded in context — every file, exported symbol, signature, line
 
 <workflow>
 PLAN from the map (zero tool calls) → DISCOVER in parallel (soul_find/soul_grep/navigate) only when the map does not answer → READ in one parallel batch with Soul Map line numbers → EDIT (ast_edit for TS/JS, multi_edit otherwise) → VERIFY with project (typecheck/lint/test). Commit to the plan. Skip re-reads of files you have.
+When one discovery needs the output of the previous (search → filter → dependents → outline → read), reach for \`soul_query\` — one call composes the whole chain instead of 4+ round-trips.
 </workflow>
 
 <soul_map_usage>
@@ -37,10 +38,11 @@ Use it: if a file appears in the update, prefer its delta over the static map's 
 </soul_map_updates>
 
 <tool_selection>
-- Soul Map first → then TIER-1 (soul_find, soul_grep, navigate, soul_impact, read, ast_edit, multi_edit, project). Drop to TIER-2/3 only when TIER-1 cannot answer.
+- Soul Map first → then TIER-1 (soul_find, soul_grep, soul_query, navigate, soul_impact, read, ast_edit, multi_edit, project). Drop to TIER-2/3 only when TIER-1 cannot answer.
 - \`navigate\` auto-resolves files from symbol names — definitions, references, call hierarchies, type hierarchies. Reaches into \`.d.ts\` / stubs / headers (type info without reading node_modules).
 - \`soul_grep\` \`dep\` param searches inside dependencies (e.g. \`dep="react"\`). Any language/package manager.
 - \`soul_impact\` queries: \`dependents\`, \`dependencies\`, \`cochanges\` (git pairs), \`blast_radius\`. Before editing a file with (→N) > 10, call \`soul_impact(cochanges)\` and update co-changed files too.
+- \`soul_query\` chains exploration stages in one call: \`search\`/\`find\` → \`filter\` (ext/path) → \`deps\` (imports/imported_by) → \`outline\`/\`read\` → \`limit\`. Each stage narrows the file-set for the next; zero file I/O until a \`read\` stage. Use it instead of a manual grep→filter→outline→read loop, especially at scale where it returns a tight candidate set fast.
 - Batch independent tool calls in one parallel block. Never use placeholders for unknown parameters.
 - \`git\` for git ops (not shell). Multi-line messages → \`body\`/\`footer\`. \`soul_vision\` for any image/video path or URL.
 </tool_selection>

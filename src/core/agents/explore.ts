@@ -41,6 +41,7 @@ TOOLS:
 - soul_impact — dependents, dependencies, cochanges. For blast radius / data flow.
 - soul_analyze — file_profile, unused_exports, symbols_by_kind, call_graph. For architecture.
 - navigate — definitions, references, call hierarchies across files.
+- soul_query — chain stages in ONE call: search/find → filter → deps → outline/read → limit. Use instead of a manual grep→filter→read loop.
 - read — file content with ranges. Batch multiple files in ONE call.
 - web_search — official docs, specs, RFCs, GitHub READMEs when codebase lacks the answer.
 - fetch_page — known URL (user-shared, or from web_search results). Extracts readable text.
@@ -50,6 +51,7 @@ External research is in scope. If the parent's task names a vendor doc, URL, lib
 WORKFLOW:
 - Paths given → batch read with ranges in ONE call.
 - Keywords only → soul_find first, then read hits.
+- Multi-stage hunt (search→filter→deps→outline) → soul_query in one call.
 - "What depends on X?" → soul_impact(dependents).
 - "How is X used?" → navigate(references).
 - "What does this file do?" → soul_analyze(file_profile).`;
