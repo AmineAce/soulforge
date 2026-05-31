@@ -311,7 +311,22 @@ export class DiscordSurface extends BaseSurface {
     }
     const custom = interaction.data?.custom_id;
     if (!custom) return;
-    const [kind, approvalId, decisionRaw] = custom.split(":");
+    const parts = custom.split(":");
+    const kind = parts[0];
+    // Bridge remote callbacks: cb:<callbackId>:<value> — routes to askRemote
+    // so ask_user / plan-review / approval prompts resolve from a button tap.
+    if (kind === "cb") {
+      const callbackId = parts[1];
+      const value = parts.slice(2).join(":");
+      if (!callbackId) return;
+      void import("../bridge.js").then(({ resolveRemoteCallback }) => {
+        const ok = resolveRemoteCallback(callbackId, value);
+        void this.respondInteraction(interaction, ok ? "received" : "expired");
+      });
+      return;
+    }
+    const approvalId = parts[1];
+    const decisionRaw = parts[2];
     if (kind !== "apr" || !approvalId || !decisionRaw) return;
     const entry = this.pendingApprovals.get(approvalId);
     if (!entry) {
@@ -341,8 +356,54 @@ export class DiscordSurface extends BaseSurface {
   }
 
   protected async renderImpl(input: SurfaceRenderInput): Promise<void> {
+    const ev = input.event as HeadlessEvent;
+    // Intercept remote-callback events — render as buttons whose custom_id
+    // encodes cb:<callbackId>:<value>, routed back through handleInteraction.
+    if (ev.type === "ask-user") {
+      await this.sendChannelMessage(input.externalId, `❓ ${ev.question}`, [
+        {
+          type: 1,
+          components: ev.options.slice(0, 5).map((opt) => ({
+            type: 2,
+            style: 1,
+            label: opt.label.slice(0, 80),
+            custom_id: `cb:${ev.callbackId}:${opt.value}`.slice(0, 100),
+          })),
+        },
+      ]);
+      return;
+    }
+    if (ev.type === "plan-review") {
+      await this.sendChannelMessage(input.externalId, `📋 Plan: ${ev.title}\n${ev.summary}`, [
+        {
+          type: 1,
+          components: [
+            { type: 2, style: 3, label: "Approve", custom_id: `cb:${ev.callbackId}:execute` },
+            { type: 2, style: 4, label: "Cancel", custom_id: `cb:${ev.callbackId}:cancel` },
+            { type: 2, style: 2, label: "Edit", custom_id: `cb:${ev.callbackId}:edit` },
+          ],
+        },
+      ]);
+      return;
+    }
+    if (ev.type === "approval-request") {
+      await this.sendChannelMessage(
+        input.externalId,
+        `🔐 ${ev.tool} requests approval\n${ev.summary}`,
+        [
+          {
+            type: 1,
+            components: [
+              { type: 2, style: 3, label: "Allow", custom_id: `cb:${ev.callbackId}:allow` },
+              { type: 2, style: 4, label: "Deny", custom_id: `cb:${ev.callbackId}:deny` },
+            ],
+          },
+        ],
+      );
+      return;
+    }
     const r = this.getRenderer(input.externalId);
-    const lines = r.renderAll(input.event as HeadlessEvent);
+    const lines = r.renderAll(ev);
     for (const line of lines) {
       if (!line.text) continue;
       await this.sendChannelMessage(input.externalId, line.text);
