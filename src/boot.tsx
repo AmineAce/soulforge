@@ -115,7 +115,7 @@ if (cliArgs.includes("--presets") || cliArgs[0] === "presets") {
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { configDir, dataDir, isCompiledBinary } from "./core/platform/index.js";
+import { commandExists, configDir, dataDir, isCompiledBinary } from "./core/platform/index.js";
 
 const IS_COMPILED = isCompiledBinary(import.meta.url);
 if (IS_COMPILED) {
@@ -412,7 +412,7 @@ const [configMod, detectMod, iconsMod, installMod] = await earlyModules;
 const { loadConfig, loadProjectConfig } = configMod;
 const { detectNeovim } = detectMod;
 const { initNerdFont } = iconsMod;
-const { getVendoredPath, installRipgrep, installFd, installLazygit } = installMod;
+const { getVendoredPath, installRipgrep, installFd, installLazygit, installAstGrep } = installMod;
 
 // Honour `SOULFORGE_AUTO_INSTALL_ADDONS=proxy,neovim` BEFORE detection runs.
 // CI / Docker hook — silent install of opted-in addons on first boot. Failures
@@ -515,6 +515,18 @@ if (!getVendoredPath("lazygit")) {
     logBackgroundError(
       "boot",
       `lazygit install failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
+}
+
+// ast-grep powers structural_edit (polyglot AST edits) — a first-class edit
+// tool, so vendor it eagerly like rg/fd. Skipped if a system copy is on PATH.
+if (!getVendoredPath("ast-grep") && !commandExists("ast-grep") && !commandExists("sg")) {
+  status("Forging the polyglot chisel");
+  installAstGrep().catch((err) => {
+    logBackgroundError(
+      "boot",
+      `ast-grep install failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   });
 }

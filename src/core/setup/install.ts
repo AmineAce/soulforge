@@ -12,6 +12,7 @@ const NVIM_VERSION = "0.11.1";
 const RG_VERSION = "14.1.1";
 const FD_VERSION = "10.2.0";
 const LAZYGIT_VERSION = "0.44.1";
+const AST_GREP_VERSION = "0.40.0";
 /**
  * Offline safety-net for fresh installs when GitHub is unreachable. The
  * *actual* version used on a fresh install is the latest GitHub release
@@ -211,7 +212,7 @@ const LAZYGIT_SUFFIXES: Record<PlatformKey, string> = {
 };
 
 export function getVendoredPath(
-  binary: "nvim" | "rg" | "fd" | "lazygit" | "cli-proxy-api",
+  binary: "nvim" | "rg" | "fd" | "lazygit" | "cli-proxy-api" | "ast-grep",
 ): string | null {
   const binLink = join(BIN_DIR, binary + EXE);
   return existsSync(binLink) ? binLink : null;
@@ -326,6 +327,33 @@ export async function installFd(): Promise<string> {
       return {
         url: `https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${dirName}.tar.gz`,
         binPath: join(INSTALLS_DIR, `fd-${FD_VERSION}`, dirName, "fd"),
+      };
+    },
+  });
+}
+
+export async function installAstGrep(): Promise<string> {
+  return installBinary({
+    name: "ast-grep",
+    binName: "ast-grep",
+    version: AST_GREP_VERSION,
+    getAsset: (key) => {
+      const map: Record<PlatformKey, string> = {
+        "darwin-arm64": "app-aarch64-apple-darwin.zip",
+        "darwin-x64": "app-x86_64-apple-darwin.zip",
+        "linux-x64": "app-x86_64-unknown-linux-gnu.zip",
+        "linux-arm64": "app-aarch64-unknown-linux-gnu.zip",
+        "win32-x64": "app-x86_64-pc-windows-msvc.zip",
+      };
+      const asset = map[key];
+      // Archive flattens to `ast-grep` + `sg` at the extract-dir root (no subdir).
+      return {
+        url: `https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/${asset}`,
+        binPath: join(
+          INSTALLS_DIR,
+          `ast-grep-${AST_GREP_VERSION}`,
+          `ast-grep${IS_WIN ? ".exe" : ""}`,
+        ),
       };
     },
   });

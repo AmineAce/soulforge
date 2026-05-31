@@ -4,6 +4,7 @@ import { extname, join, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { findOnPath, IS_WIN } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
+import { getVendoredPath } from "../setup/install.js";
 
 const EXE = IS_WIN ? ".exe" : "";
 const RUN_TIMEOUT_MS = 30_000;
@@ -49,15 +50,23 @@ const TS_JS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs"
 /**
  * Resolve the ast-grep binary across platforms.
  *
- * node_modules/.bin entries differ by OS: a bare symlink on POSIX, but
- * npm-generated `.cmd`/`.ps1` shims on Windows (never `.exe`). We probe the
- * Windows shim extensions first, then the native per-platform package
- * (`@ast-grep/cli-{platform}`) which carries the real `ast-grep`/`ast-grep.exe`,
- * and finally PATH. Returns null when nothing is found.
+ * Resolution order:
+ *  1. Vendored binary in ~/.soulforge/bin (installed by the prerequisite
+ *     pipeline — the always-available production source, same as rg/fd/nvim).
+ *  2. node_modules — dev mode. `.bin` entries differ by OS: a bare symlink on
+ *     POSIX, npm `.cmd`/`.ps1` shims on Windows (never `.exe`); also the native
+ *     per-platform package.
+ *  3. PATH — user-installed system binary.
+ *
+ * Returns null only when ast-grep is genuinely unavailable everywhere.
  */
 function resolveAstGrep(cwd: string): string | null {
+  // 1. Vendored — present in every production install once prerequisites run.
+  const vendored = getVendoredPath("ast-grep");
+  if (vendored) return vendored;
+
+  // 2. node_modules (dev). On Windows npm writes `ast-grep.cmd` (+ `.ps1`).
   const binDir = join(cwd, "node_modules", ".bin");
-  // On Windows npm writes `ast-grep.cmd` (+ `.ps1`); POSIX writes a bare shim.
   const localCandidates = IS_WIN
     ? ["ast-grep.cmd", "ast-grep.exe", "ast-grep.ps1", "ast-grep", "sg.cmd", "sg.exe", "sg"]
     : ["ast-grep", "sg"];
@@ -65,21 +74,21 @@ function resolveAstGrep(cwd: string): string | null {
     const candidate = join(binDir, name);
     if (existsSync(candidate)) return candidate;
   }
-
-  // Native binary inside the per-platform package, bypassing the JS shim
-  // (avoids the "postinstall did not run" runtime-resolution overhead).
   const nativeDir = join(cwd, "node_modules", "@ast-grep", "cli");
   for (const name of [`ast-grep${EXE}`, `sg${EXE}`]) {
     const candidate = join(nativeDir, name);
     if (existsSync(candidate)) return candidate;
   }
 
+  // 3. PATH.
   return findOnPath("ast-grep") ?? findOnPath("sg") ?? null;
 }
 
 const MISSING_HINT =
-  "ast-grep not found. Install it with `bun add -D @ast-grep/cli` (or `brew install ast-grep`), " +
-  "then retry. For TS/JS use ast_edit instead — it's type-aware and needs no external binary.";
+  "ast-grep is not yet available. SoulForge auto-installs it on startup (vendored into " +
+  "~/.soulforge/bin); this usually means the first-run download hasn't completed or failed " +
+  "(e.g. offline). Restart to retry, or install manually (`brew install ast-grep` / " +
+  "`cargo install ast-grep`). For TS/JS use ast_edit — type-aware, no external binary needed.";
 
 interface StructuralEditArgs {
   file: string;

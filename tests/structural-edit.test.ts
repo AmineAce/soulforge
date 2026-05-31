@@ -43,6 +43,19 @@ afterEach(() => {
   // each test writes its own file
 });
 
+test("resolves the vendored binary when present in ~/.soulforge/bin", async () => {
+  const { getVendoredPath } = await import("../src/core/setup/install.js");
+  const vendored = getVendoredPath("ast-grep");
+  if (!vendored) return; // vendored copy not installed in this env — skip
+  expect(existsSync(vendored)).toBe(true);
+  // A rewrite must succeed regardless of node_modules — proves the prod path
+  // (vendored bin, no npm package in cwd) works.
+  writeFileSync(join(dir, "vend.go"), "package main\nfunc a() { b() }\n");
+  const r = await structuralEditTool.execute({ file: "vend.go", pattern: "b()", rewrite: "c()" });
+  expect(r.success).toBe(true);
+  expect(readFileSync(join(dir, "vend.go"), "utf-8")).toContain("c()");
+});
+
 describe("structural_edit", () => {
   test("rejects TypeScript files (routes to ast_edit)", async () => {
     writeFileSync(join(dir, "a.ts"), "const x = 1;\n");
