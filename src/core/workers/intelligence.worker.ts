@@ -169,6 +169,7 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
     requireRepoMap().getFileSymbolRanges(relPath as string),
   getEnclosingSymbols: (relPath: unknown) =>
     requireRepoMap().getEnclosingSymbols(relPath as string),
+  resolveMoniker: (moniker: unknown) => requireRepoMap().resolveMoniker(moniker as string),
   getSymbolSignature: (name: unknown) => requireRepoMap().getSymbolSignature(name as string),
   getSymbolsByKind: (kind: unknown, limit: unknown) =>
     requireRepoMap().getSymbolsByKind(kind as string, limit as number | undefined),

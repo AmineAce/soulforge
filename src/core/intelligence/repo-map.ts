@@ -341,6 +341,13 @@ export class RepoMap {
       this.db.run("ALTER TABLE files ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0");
     } catch {}
 
+    // Migration: stable SCIP-style symbol moniker (position-independent identity).
+    // NULL on legacy rows until the file is re-indexed; callers tolerate NULL.
+    try {
+      this.db.run("ALTER TABLE symbols ADD COLUMN moniker TEXT");
+    } catch {}
+    this.db.run("CREATE INDEX IF NOT EXISTS idx_symbols_moniker ON symbols(moniker)");
+
     this.migrateSemanticSource();
     this.migrateSemanticNoCascade();
     this.backfillSummaryPaths();
@@ -889,6 +896,27 @@ export class RepoMap {
             }
           });
           qTx();
+        }
+
+        // Stable SCIP-style monikers: position-independent identity for every
+        // symbol. Uses qualified_name when present (nested), else the bare name.
+        // Survives line moves/reformatting so cochange/recall stay stable.
+        {
+          const mod = relPath.replace(/\.[^./]+$/, "");
+          const rows = this.db
+            .query<
+              { id: number; name: string; kind: string; qualified_name: string | null },
+              [number]
+            >("SELECT id, name, kind, qualified_name FROM symbols WHERE file_id = ?")
+            .all(fileId);
+          const updateMoniker = this.db.prepare("UPDATE symbols SET moniker = ? WHERE id = ?");
+          const mTx = this.db.transaction(() => {
+            for (const r of rows) {
+              const descriptor = r.qualified_name ?? r.name;
+              updateMoniker.run(`${mod}#${descriptor}(${r.kind})`, r.id);
+            }
+          });
+          mTx();
         }
       }
 
@@ -3654,6 +3682,7 @@ export class RepoMap {
     kind: string;
     line: number;
     endLine: number | null;
+    moniker: string | null;
   }> {
     return this.db
       .query<
@@ -3663,10 +3692,11 @@ export class RepoMap {
           kind: string;
           line: number;
           end_line: number | null;
+          moniker: string | null;
         },
         [string]
       >(
-        `SELECT s.name, s.qualified_name, s.kind, s.line, s.end_line
+        `SELECT s.name, s.qualified_name, s.kind, s.line, s.end_line, s.moniker
          FROM symbols s JOIN files f ON f.id = s.file_id
          WHERE f.path = ?
            AND s.kind IN ('interface','type','class','function','enum','method','constant')
@@ -3681,6 +3711,7 @@ export class RepoMap {
         kind: r.kind,
         line: r.line,
         endLine: r.end_line,
+        moniker: r.moniker,
       }));
   }
 
@@ -5248,6 +5279,39 @@ export class RepoMap {
       )
       .all(relPath)
       .map((r) => ({ name: r.name, kind: r.kind, line: r.line, endLine: r.end_line }));
+  }
+
+  /**
+   * Resolve a stable SCIP-style moniker to its current location. Survives line
+   * moves/reformatting since the moniker is position-independent. Returns null for
+   * legacy rows (moniker NULL until re-indexed) or unknown monikers.
+   */
+  resolveMoniker(moniker: string): {
+    name: string;
+    kind: string;
+    line: number;
+    qualifiedName: string | null;
+    path: string;
+  } | null {
+    const row = this.db
+      .query<
+        { name: string; kind: string; line: number; qualified_name: string | null; path: string },
+        [string]
+      >(
+        `SELECT s.name, s.kind, s.line, s.qualified_name, f.path
+           FROM symbols s JOIN files f ON f.id = s.file_id
+          WHERE s.moniker = ?
+          LIMIT 1`,
+      )
+      .get(moniker);
+    if (!row) return null;
+    return {
+      name: row.name,
+      kind: row.kind,
+      line: row.line,
+      qualifiedName: row.qualified_name,
+      path: row.path,
+    };
   }
 
   /**

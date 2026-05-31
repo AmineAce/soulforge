@@ -70,6 +70,7 @@ export function formatArgs(toolName: string, args?: string): string {
     if (toolName === "multi_edit" && parsed.path) return relPath(String(parsed.path));
     if (toolName === "undo_edit" && parsed.path) return relPath(String(parsed.path));
     if (toolName === "ast_edit" && parsed.path) return relPath(String(parsed.path));
+    if (toolName === "structural_edit" && parsed.file) return relPath(String(parsed.file));
     if (toolName === "list_dir" && parsed.path) {
       if (Array.isArray(parsed.path)) {
         const paths = parsed.path.map(String);
@@ -544,6 +545,7 @@ const PATH_ARG_KEYS: Record<string, readonly string[]> = {
   rename_symbol: ["file"],
   move_symbol: ["from", "to"],
   ast_edit: ["path"],
+  structural_edit: ["file"],
   navigate: ["file"],
   analyze: ["file"],
   refactor: ["file"],

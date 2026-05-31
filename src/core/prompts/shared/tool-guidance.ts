@@ -2,7 +2,7 @@ export const TOOL_GUIDANCE_WITH_MAP = `<tool_usage>
 A Soul Map is loaded in context — every file, exported symbol, signature, line number, dependency edge. It is your first source of truth; tools retrieve just-in-time what the map does not already answer.
 
 <workflow>
-PLAN from the map (zero tool calls) → DISCOVER in parallel (soul_find/soul_grep/navigate) only when the map does not answer → READ in one parallel batch with Soul Map line numbers → EDIT (ast_edit for TS/JS, multi_edit otherwise) → VERIFY with project (typecheck/lint/test). Commit to the plan. Skip re-reads of files you have.
+PLAN from the map (zero tool calls) → DISCOVER in parallel (soul_find/soul_grep/navigate) only when the map does not answer → READ in one parallel batch with Soul Map line numbers → EDIT (ast_edit for TS/JS, structural_edit for other languages, multi_edit for config/raw text) → VERIFY with project (typecheck/lint/test). Commit to the plan. Skip re-reads of files you have.
 When one discovery needs the output of the previous (search → filter → dependents → outline → read), reach for \`soul_query\` — one call composes the whole chain instead of 4+ round-trips.
 </workflow>
 
@@ -53,6 +53,7 @@ Use it: if a file appears in the update, prefer its delta over the static map's 
 
 <ast_edit>
 \`ast_edit\` is the default editor for .ts/.tsx/.js/.jsx/.mts/.cts/.mjs/.cjs — pairs directly with the Soul Map (every symbol name + kind is in context). See the tool's description for the full operation taxonomy, body-shape rules, replace_in_body anchor shapes, and examples. Use it before edit_file/multi_edit.
+For NON-TS/JS source (Go, Rust, Python, Java, C/C++, Ruby, PHP, …) reach for \`structural_edit\` — ast-grep \`pattern → rewrite\` over the syntax tree (meta-vars \`$X\`, \`$$$ARGS\`), robust to formatting. It is syntactic only (no types), the polyglot counterpart to ast_edit, not a replacement. \`preview:true\` shows the diff first. Needs the opt-in ast-grep CLI; falls back to \`multi_edit\` when absent. Route TS/JS → ast_edit (type-aware), everything else → structural_edit.
 </ast_edit>
 
 <non_ts_edits>

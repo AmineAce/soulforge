@@ -66,6 +66,7 @@
     "postinstall": "bun scripts/postinstall.mjs"
   },
   "devDependencies": {
+    "@ast-grep/cli": "^0.43.0",
     "@babel/core": "7.29.0",
     "@biomejs/biome": "2.4.15",
     "@types/babel__core": "7.20.5",

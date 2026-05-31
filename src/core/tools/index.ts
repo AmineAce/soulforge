@@ -56,6 +56,7 @@ import { soulFindTool } from "./soul-find.js";
 import { soulGrepTool } from "./soul-grep.js";
 import { soulImpactTool } from "./soul-impact.js";
 import { soulQueryTool } from "./soul-query.js";
+import { structuralEditTool } from "./structural-edit.js";
 import { taskListTool } from "./task-list.js";
 import { buildWebSearchTool } from "./web-search";
 
@@ -779,6 +780,25 @@ export function buildTools(
         await enrichWithBlastRadius(result, args.path, effectiveCwd, opts?.repoMap);
         return result;
       }),
+    }),
+
+    structural_edit: tool({
+      ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
+      description: structuralEditTool.description,
+      inputSchema: z.object({
+        file: z.string().describe("File to edit (non-TS/JS — TS/JS routes to ast_edit)"),
+        pattern: z.string().describe("ast-grep AST pattern with meta-variables ($X, $$$ARGS)"),
+        rewrite: z.string().describe("Replacement pattern, reusing captured meta-variables"),
+        lang: optStr().describe("Override language detection (ast-grep lang id, e.g. 'go')"),
+        preview: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Preview the diff without writing (default false = apply)"),
+      }),
+      execute: deferExecute((args) => structuralEditTool.execute(args)),
     }),
 
     task_list: tool({

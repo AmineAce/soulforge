@@ -51,6 +51,7 @@ export const TOOL_CATALOG: Record<string, string> = {
   editor: "Open file in embedded Neovim editor",
   task_list: "Create and track tasks for the current session",
   ast_edit: "Surgical AST editing for TS/JS — prefer over edit_file/multi_edit",
+  structural_edit: "Polyglot AST find/rewrite via ast-grep — non-TS/JS (Go, Rust, Python, …)",
 };
 
 /** Tools gated on addon presence — hidden from /tools, catalog, and tool listings when missing. */

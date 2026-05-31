@@ -22,6 +22,7 @@ export const FINAL_RESPONSE_EDIT_TOOLS = new Set([
   "edit_file",
   "multi_edit",
   "ast_edit",
+  "structural_edit",
   "write_file",
   "create_file",
   "rename_file",
