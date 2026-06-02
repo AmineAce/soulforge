@@ -133,8 +133,8 @@ async function applyFormatEdits(formatEdit: FormatEdit, tabId?: string): Promise
 
   let result = content;
   for (const edit of sorted) {
-    const startOffset = (lineStarts[edit.startLine] ?? 0) + edit.startCol - 1;
-    const endOffset = (lineStarts[edit.endLine] ?? 0) + edit.endCol - 1;
+    const startOffset = (lineStarts[edit.startLine - 1] ?? 0) + edit.startCol - 1;
+    const endOffset = (lineStarts[edit.endLine - 1] ?? 0) + edit.endCol - 1;
     result = result.slice(0, startOffset) + edit.newText + result.slice(endOffset);
   }
 
