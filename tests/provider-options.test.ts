@@ -306,6 +306,19 @@ describe("getCompatReasoningBody", () => {
     expect(body.enable_thinking).toBe(true);
   });
 
+  test("llmgateway/deepseek picks up unified effort", () => {
+    const cfg = baseConfig({ effort: "high" });
+    const body = getCompatReasoningBody("llmgateway/deepseek-v4-pro", cfg);
+    expect(body.reasoning_effort).toBe("high");
+    // LLM Gateway rejects both keys — only reasoning_effort, never reasoning.effort.
+    expect(body.reasoning).toBeUndefined();
+  });
+
+  test("llmgateway Claude is guarded (no reasoning_effort body)", () => {
+    const cfg = baseConfig({ effort: "high" });
+    expect(getCompatReasoningBody("llmgateway/claude-sonnet-4-6", cfg)).toEqual({});
+  });
+
   test("returns empty when no effort set", () => {
     const cfg = baseConfig();
     expect(getCompatReasoningBody("groq/qwen3-32b", cfg)).toEqual({});

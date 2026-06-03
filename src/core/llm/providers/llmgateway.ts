@@ -1,6 +1,9 @@
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
+import { getCompatReasoningBody } from "../compat-reasoning.js";
 import { SHARED_CONTEXT_WINDOWS } from "./context-windows.js";
+import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 export const llmgateway: ProviderDefinition = {
@@ -20,6 +23,12 @@ export const llmgateway: ProviderDefinition = {
       throw new Error("LLM_GATEWAY_API_KEY is not set");
     }
 
+    // Inject OpenAI-compatible reasoning_effort for non-Claude SKUs (DeepSeek,
+    // Qwen, GLM, etc.). Claude is guarded inside getCompatReasoningBody and uses
+    // native anthropic providerOptions instead.
+    const reasoningBody = getCompatReasoningBody(`llmgateway/${modelId}`, loadConfig());
+    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+
     const provider = createLLMGateway({
       apiKey,
       headers: {
@@ -27,6 +36,7 @@ export const llmgateway: ProviderDefinition = {
         "HTTP-Referer": "https://soulforge.proxysoul.com",
         "X-Title": "SoulForge",
       },
+      ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),
     });
 
     // LLMGatewayChatModelId is a union of literal model IDs, not exported.

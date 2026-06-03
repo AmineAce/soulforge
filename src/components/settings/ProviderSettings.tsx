@@ -293,7 +293,7 @@ const OPENROUTER_ITEMS: SettingItem[] = [
 const COMPAT_ITEMS: SettingItem[] = [
   {
     type: "info",
-    text: "Applies to: Groq · Fireworks · OpenCode Zen · OpenCode Go · LM Studio · Ollama · Copilot · GitHub Models · MiniMax · Proxy (non-Claude lane)",
+    text: "Applies to: Groq · Fireworks · OpenCode Zen · OpenCode Go · LM Studio · Ollama · Copilot · GitHub Models · MiniMax · Proxy · LLM Gateway (non-Claude lane)",
   },
   { type: "section", label: "Shared effort" },
   {

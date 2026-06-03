@@ -29,6 +29,7 @@ const COMPAT_PROVIDERS = new Set([
   "lmstudio",
   "ollama",
   "proxy",
+  "llmgateway",
 ]);
 
 export function getCompatReasoningBody(
@@ -86,6 +87,15 @@ export function getCompatReasoningBody(
   }
 
   const isDashscope = /qwen|glm-|kimi-/.test(base);
+
+  // LLM Gateway is strict: it rejects requests carrying both reasoning_effort
+  // and reasoning.effort ("Use one or the other"). Emit the single canonical key.
+  if (provider === "llmgateway") {
+    const body: Record<string, unknown> = { reasoning_effort: effort };
+    if (isDashscope) body.enable_thinking = true;
+    return body;
+  }
+
   const body: Record<string, unknown> = {
     reasoning_effort: effort,
     reasoning: { effort },
