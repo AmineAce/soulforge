@@ -358,9 +358,13 @@ export function App({
 
   const copyToClipboard = useCallback(
     (text: string) => {
-      if (!renderer.copyToClipboardOSC52(text)) {
-        nativeCopyToClipboard(text);
-      }
+      // Emit OSC-52 (covers SSH / remote terminals) AND write natively
+      // (pbcopy/xclip/wl-copy/clip). Doing both unconditionally — like
+      // opencode — because OSC-52 is silently ignored by many terminals
+      // even when capability detection claims support, so relying on the
+      // OSC-52 return value to gate the native fallback loses the copy.
+      renderer.copyToClipboardOSC52(text);
+      nativeCopyToClipboard(text);
     },
     [renderer],
   );
