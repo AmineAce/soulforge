@@ -384,21 +384,18 @@ export const FinalResponseLiveAutoView = memo(function FinalResponseLiveAutoView
       </box>
     ) : null;
 
-  // Chat-only turn (no tool segments) — stream everything as plain text.
-  const chatOnlyText = useMemo(() => {
-    if (firstToolsIdx >= 0) return null;
+  // Leading text — every text segment BEFORE the first tool cluster. Renders
+  // through ONE stable slot whether or not tools have arrived yet, so the
+  // DripText instance survives the no-tools→tools transition (no remount =
+  // no typewriter replay on top of the tool rail).
+  const leading = useMemo(() => {
+    const end = firstToolsIdx < 0 ? segments.length : firstToolsIdx;
     const parts: string[] = [];
-    for (const seg of segments) {
+    for (let i = 0; i < end; i++) {
+      const seg = segments[i];
       if (seg?.type === "text" && seg.content.length > 0) parts.push(seg.content);
     }
     return parts.length > 0 ? parts.join("") : null;
-  }, [segments, firstToolsIdx]);
-
-  // Opening text: a text segment BEFORE the first tool cluster.
-  const opening = useMemo(() => {
-    if (firstToolsIdx <= 0) return null;
-    const first = segments[0];
-    return first?.type === "text" ? first.content : null;
   }, [segments, firstToolsIdx]);
 
   // Trailing text only renders once the model has called final_response() —
@@ -464,19 +461,10 @@ export const FinalResponseLiveAutoView = memo(function FinalResponseLiveAutoView
   const allToolsDone = tools.length > 0 && tools.every((t) => t.done);
   const pendingNarration = allToolsDone && !dispatchActive && !trailingText;
 
-  if (chatOnlyText) {
-    return (
-      <box flexDirection="column">
-        {reasoningNode}
-        <DripText content={chatOnlyText} streaming />
-      </box>
-    );
-  }
-
   // Nothing visible yet (e.g. only reasoning has streamed and it's hidden, or
   // the model is still thinking before any output) — show a placeholder so the
   // header never appears with an empty body.
-  const hasVisibleBody = !!reasoningNode || tools.length > 0 || !!opening || !!trailingText;
+  const hasVisibleBody = !!reasoningNode || tools.length > 0 || !!leading || !!trailingText;
   if (!hasVisibleBody) {
     return (
       <text fg={t.textMuted} attributes={TextAttributes.ITALIC}>
@@ -488,9 +476,9 @@ export const FinalResponseLiveAutoView = memo(function FinalResponseLiveAutoView
   return (
     <box flexDirection="column">
       {reasoningNode}
-      {opening ? (
+      {leading ? (
         <box flexDirection="column">
-          <DripText content={opening} streaming />
+          <DripText content={leading} streaming />
         </box>
       ) : null}
       {tools.length > 0 ? (
