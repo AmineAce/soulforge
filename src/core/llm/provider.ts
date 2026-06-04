@@ -1,4 +1,4 @@
-import type { LanguageModel } from "ai";
+import { extractReasoningMiddleware, type LanguageModel, wrapLanguageModel } from "ai";
 import { getProviderApiKey } from "../secrets.js";
 import { getAllProviders, getProvider } from "./providers/index.js";
 
@@ -129,7 +129,20 @@ export function resolveModel(modelId: string): LanguageModel {
   if (!provider) {
     throw new Error(`Unknown provider "${providerId}"`);
   }
-  return provider.createModel(model);
+  const base = provider.createModel(model);
+  // Some providers (e.g. Codex) return a v2 model spec while wrapLanguageModel is
+  // typed for v3; the reasoning middleware works on both at runtime. Bridge the
+  // version-spec gap with a cast — keep the public LanguageModel return type.
+  return wrapLanguageModel({
+    model: base as Parameters<typeof wrapLanguageModel>[0]["model"],
+    // Models that inline-emit thinking as <think>/<thinking> tags in their text
+    // stream (some local/OpenAI-compatible models) get them split out into
+    // native reasoning parts. No-op for providers with a native reasoning channel.
+    middleware: [
+      extractReasoningMiddleware({ tagName: "think" }),
+      extractReasoningMiddleware({ tagName: "thinking" }),
+    ],
+  }) as LanguageModel;
 }
 type ProviderSwitchListener = (newModelId: string) => void | Promise<void>;
 const providerSwitchListeners = new Set<ProviderSwitchListener>();
