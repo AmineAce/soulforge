@@ -2,6 +2,12 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.7] — 2026-06-08
+
+### Bug Fixes
+
+- **clipboard**: repair text copy across platforms and terminals
+- **clipboard**: fix image paste on Windows (#89)
 ## [2.20.6] — 2026-06-04
 
 ### Bug Fixes
