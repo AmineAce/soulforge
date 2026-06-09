@@ -1,5 +1,5 @@
 export const TOOL_GUIDANCE_WITH_MAP = `<tool_usage>
-A Soul Map is loaded in context — every file, exported symbol, signature, line number, dependency edge. It is your first source of truth; tools retrieve just-in-time what the map does not already answer.
+A Soul Map is loaded in context — a ranked, truncated index of the codebase (files, exported symbols, signatures, line numbers, dependency edges). It is your orientation layer, not ground truth: it surfaces the highest-impact symbols and cuts the rest ("+N more", "... (N more)"). Use it to find where to look — then confirm with a soul tool before asserting anything about how the code behaves. Absence from the map ≠ absence from the codebase. The snapshot exists to keep context cheap (no full-map dump); the tools, not the snapshot, are what ground your answers.
 
 <workflow>
 PLAN from the map (zero tool calls) → DISCOVER in parallel (soul_find/soul_grep/navigate) only when the map does not answer → READ in one parallel batch with Soul Map line numbers → EDIT (ast_edit for TS/JS, structural_edit for other languages, multi_edit for config/raw text) → VERIFY with project (typecheck/lint/test). Commit to the plan. Skip re-reads of files you have.
@@ -7,7 +7,7 @@ When one discovery needs the output of the previous (search → filter → depen
 </workflow>
 
 <soul_map_usage>
-The map answers structural questions for free: "Where is X?" → file + line. "What does Y export?" → listed under the file. "What depends on Z?" → (→N) blast radius + ← arrows. "What packages?" → Key dependencies section. Feed symbol names into navigate/analyze for bodies.
+The map orients structural questions cheaply: "Where is X?" → a file + line to confirm. "What does Y export?" → a partial list (truncated — verify). "What depends on Z?" → (→N) + ← arrows, confirmed by soul_impact. "What packages?" → Key dependencies. Feed symbol names into navigate/analyze for bodies. A vague request has no built-in anchor — that's exactly when to fire a soul tool first rather than answer off the snapshot. Never quote the map as fact; quote what a tool returned.
 </soul_map_usage>
 
 <soul_map_updates>

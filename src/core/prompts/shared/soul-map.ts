@@ -19,14 +19,13 @@ What each part means:
 - Signatures show function/type shapes so you can understand APIs without reading files
 - Key dependencies section shows external packages and how widely they're used`;
 
-const SOUL_MAP_USAGE = `This map answers most structural questions directly:
-- "Where is X?" → find the file and line in the map
-- "What does file Y export?" → listed under that file
-- "What depends on Z?" → check the ← arrows and blast radius
-- "What packages does this project use?" → Key dependencies section
+const SOUL_MAP_USAGE = `This map is a ranked, truncated index — an orientation layer, not the codebase. It surfaces the highest-impact files and exports; lower-ranked symbols, bodies, and whole files are cut (see "+N more", "... (N more)"). Use it to locate, not to conclude.
 
-For deeper questions, feed symbol names from the map into navigate() or analyze().
-The map gives you the names, LSP gives you the details.`;
+- "Where is X?" → the map points you at a file + line to confirm with a read/navigate.
+- "What does Y export?" → a starting list; verify before asserting the full surface.
+- "What depends on Z?" → (→N) and ← arrows orient blast radius; soul_impact confirms it.
+
+Absence from the map is NOT absence from the codebase — a missing symbol may be ranked out, not nonexistent. Before stating any claim about how the code behaves, confirm it with a soul tool (soul_grep / soul_find / navigate / read). The map tells you where to look; the tools tell you what's true. Reason from the snapshot, answer from the tools.`;
 
 const LEGEND = "+ = exported. (→N) = blast radius. [NEW] = modified in last 48h.\n";
 const DIR_TREE_DEPTH = 2;
