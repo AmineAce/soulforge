@@ -2,6 +2,8 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.11] — 2026-06-09
+
 ## [2.20.10] — 2026-06-09
 
 ### Bug Fixes
