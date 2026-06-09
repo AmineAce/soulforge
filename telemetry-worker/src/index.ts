@@ -26,15 +26,10 @@ const EVENTS = new Set(["session_start", "session_end"]);
 const OSES = new Set(["darwin", "linux", "win32"]);
 const ARCHES = new Set(["arm64", "x64", "other"]);
 const INSTALLS = new Set(["npm", "pnpm", "yarn", "bun", "brew", "binary", "unknown"]);
-const FAMILIES = new Set([
-  "claude",
-  "openai",
-  "google",
-  "xai",
-  "deepseek",
-  "deepseek-reasoner",
-  "other",
-]);
+// Model family is bucketed client-side (detectModelFamily). The worker enforces
+// a SHAPE only — not a fixed allow-list — so a new provider family surfaces
+// automatically instead of being dropped into a blank/other bucket.
+const FAMILY_RE = /^[a-z][a-z0-9-]{0,19}$/;
 
 // Shape validators — a real client always satisfies these, so rejecting on
 // failure has zero false negatives but drops malformed/spoofed junk so it is
@@ -45,7 +40,7 @@ const SEMVER_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[\w.]{1,16})?$/;
 // provider → "custom", unknown model → "other"); the worker enforces a strict
 // SHAPE (lowercase, bounded charset/length) as defense in depth.
 const PROVIDER_RE = /^[a-z][a-z0-9-]{0,23}$/;
-const MODEL_RE = /^[a-z0-9][a-z0-9.\-]{0,31}$/;
+const MODEL_RE = /^[a-z0-9][a-z0-9.\-]{0,47}$/;
 
 /** Must be exactly one of the allow-listed values — no coercion. */
 function inSet(v: string | null, set: Set<string>): v is string {
@@ -104,7 +99,7 @@ export default {
       id != null &&
       UUID_RE.test(id) &&
       (install == null || INSTALLS.has(install)) &&
-      (family == null || FAMILIES.has(family)) &&
+      (family == null || FAMILY_RE.test(family)) &&
       (provider == null || PROVIDER_RE.test(provider)) &&
       (model == null || MODEL_RE.test(model));
 

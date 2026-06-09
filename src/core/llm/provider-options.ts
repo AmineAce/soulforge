@@ -419,21 +419,13 @@ export function isAnthropicNative(modelId: string): boolean {
 }
 
 /**
- * Recognized PUBLIC model-name shapes. A base model is only reported when it
- * matches one of these exactly (after lowercasing) — anything else collapses to
- * "other". This is an ALLOW-LIST, not a sanitizer: it guarantees a free-form /
- * custom model string (which can embed secrets, org or project names) can never
- * reach the wire, even under a built-in provider. Patterns are deliberately
- * tight: a known family prefix + only version/variant tokens.
+ * Low-cardinality public-model SHAPE: a family prefix followed by up to 5
+ * version/variant tokens (e.g. claude-sonnet-4-5, gemini-3.1-pro-preview,
+ * gpt-5.4-mini). A shape gate — not a per-family allow-list — so new public
+ * models surface automatically, while a free-form string that could embed
+ * secrets/org/project names fails the shape and collapses to "other".
  */
-const TELEMETRY_MODEL_PATTERNS: RegExp[] = [
-  /^claude-[a-z]+-\d+(?:[.-]\d+)?(?:-\d{8})?$/, // claude-sonnet-4-5, claude-opus-4.7
-  /^gpt-[a-z0-9.]+(?:-[a-z0-9.]+)?$/, // gpt-5, gpt-4o, gpt-4.1-mini
-  /^o[1-9](?:-[a-z]+)?$/, // o1, o3-mini
-  /^gemini-[0-9.]+-[a-z]+(?:-[a-z0-9]+)?$/, // gemini-2.5-pro, gemini-3-flash
-  /^grok-[0-9]+(?:-[a-z]+)?$/, // grok-4, grok-3-mini
-  /^deepseek-[a-z]+(?:-[a-z0-9]+)?$/, // deepseek-chat, deepseek-reasoner
-];
+const TELEMETRY_MODEL_SLUG = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,5}$/;
 
 /**
  * Anonymous, privacy-safe telemetry descriptor for a model id. Reuses the
@@ -441,7 +433,7 @@ const TELEMETRY_MODEL_PATTERNS: RegExp[] = [
  *   provider: built-in provider id, or "custom" (custom providers are suffixed
  *             "-custom" by registerCustomProviders, so they bucket cleanly).
  *   model:    the public base model name ONLY when the provider is built-in AND
- *             the base name matches a recognized public-model pattern exactly.
+ *             the base name has a low-cardinality public-model SHAPE.
  *             Otherwise "other" — so a custom/free-form model string (which can
  *             embed secrets, org, or project names) is NEVER sent, even under a
  *             real provider prefix like "anthropic/<anything>".
@@ -452,9 +444,18 @@ export function telemetryModelInfo(modelId: string): { provider: string; model: 
   const builtin = isBuiltinProvider(rawProvider);
   const provider = builtin ? rawProvider : "custom";
 
-  const base = extractBaseModel(modelId);
-  const known = builtin && TELEMETRY_MODEL_PATTERNS.some((re) => re.test(base));
-  const model = known ? base.slice(0, 32) : "other";
+  // Use the segment after the FIRST slash (not extractBaseModel's lastIndexOf,
+  // which would strip "claude-../../etc/passwd" down to a clean "passwd" and
+  // sneak path traversal past the gate). Any remaining slash fails the shape.
+  const raw = (slash >= 0 ? modelId.slice(slash + 1) : modelId).toLowerCase();
+  // Report the real base name for any built-in provider as long as it has a
+  // low-cardinality public-model SHAPE (family prefix + version/variant tokens,
+  // no smuggled blobs). Custom providers and free-form ids → "other". This is a
+  // shape gate, not a per-family allow-list: new public models surface
+  // automatically, while a string that could embed secrets/org/project names
+  // never reaches the wire.
+  const known = builtin && raw.length <= 40 && TELEMETRY_MODEL_SLUG.test(raw);
+  const model = known ? raw : "other";
   return { provider, model };
 }
 

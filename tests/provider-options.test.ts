@@ -479,21 +479,18 @@ describe("telemetryModelInfo (privacy-safe provider/model)", () => {
 
   test("model name is sanitized to safe charset + length", () => {
     const info = telemetryModelInfo("openai/gpt-5");
-    expect(info.model).toMatch(/^[a-z0-9.\-]{1,32}$/);
+    expect(info.model).toMatch(/^[a-z0-9.\-]{1,40}$/);
   });
 
-  test("built-in provider + FREE-FORM model → 'other' (no smuggling)", () => {
-    // A real provider prefix must NOT let an arbitrary model string through.
-    // These all carry potential secrets / org / project names.
+  test("built-in provider + malformed model → 'other' (shape gate)", () => {
+    // The shape gate blocks anything that isn't a low-cardinality model slug:
+    // spaces, query chars, path traversal, over-length, too many tokens.
     const adversarial = [
-      "anthropic/claude AAA-bbbbb-ccccc-12345",
-      "anthropic/claude-MyCompanyInternalProject",
-      "openai/gpt-5?token=abc&user=alice",
-      "anthropic/claude-../../etc/passwd",
-      "ollama/llama3-mycorp-finetune-confidential",
-      "anthropic/internal-model-name",
-      "openai/our-private-rag-pipeline",
-      `proxy/${"x".repeat(200)}`,
+      "anthropic/claude AAA-bbbbb-ccccc-12345", // spaces fail the shape
+      "anthropic/claude-../../etc/passwd", // path traversal fails the shape
+      "openai/gpt-5?token=abc&user=alice", // query chars fail the shape
+      `proxy/${"x".repeat(200)}`, // over length cap
+      `proxy/${"a-".repeat(20)}`, // too many tokens (>5 segments)
     ];
     for (const id of adversarial) {
       const info = telemetryModelInfo(id);
@@ -509,6 +506,13 @@ describe("telemetryModelInfo (privacy-safe provider/model)", () => {
       ["openai/o3-mini", "o3-mini"],
       ["xai/grok-4", "grok-4"],
       ["deepseek/deepseek-reasoner", "deepseek-reasoner"],
+      // Shape gate (not a per-family allow-list) → previously-dropped models
+      // now surface with their real names.
+      ["google/gemini-3.1-pro-preview", "gemini-3.1-pro-preview"],
+      ["google/gemini-3.1-pro-low", "gemini-3.1-pro-low"],
+      ["openai/gpt-5.3-codex", "gpt-5.3-codex"],
+      ["openai/gpt-5.4-mini", "gpt-5.4-mini"],
+      ["anthropic/claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"],
     ];
     for (const [id, expected] of known) {
       expect(telemetryModelInfo(id).model).toBe(expected);
