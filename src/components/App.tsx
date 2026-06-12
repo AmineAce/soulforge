@@ -54,7 +54,7 @@ import { useToolsStore } from "../stores/tools.js";
 import { type ModalName, selectIsAnyModalOpen, useUIStore } from "../stores/ui.js";
 import { useVersionStore } from "../stores/version.js";
 import type { AppConfig, ChatMessage, EditorIntegration, TaskRouter } from "../types/index.js";
-import { copyToClipboard as nativeCopyToClipboard } from "../utils/clipboard.js";
+import { copyOsc52, copyToClipboard as nativeCopyToClipboard } from "../utils/clipboard.js";
 import { BrandTag } from "./layout/BrandTag.js";
 import { ContextBar } from "./layout/ContextBar.js";
 import { EditorPanel } from "./layout/EditorPanel.js";
@@ -365,7 +365,9 @@ export function App({
       // opencode — because OSC-52 is silently ignored by many terminals
       // even when capability detection claims support, so relying on the
       // OSC-52 return value to gate the native fallback loses the copy.
-      renderer.copyToClipboardOSC52(text);
+      // Renderer OSC-52 no-ops when capability detection missed osc52
+      // support (common over SSH) — fall back to raw escape on stdout.
+      if (!renderer.copyToClipboardOSC52(text)) copyOsc52(text);
       nativeCopyToClipboard(text);
     },
     [renderer],

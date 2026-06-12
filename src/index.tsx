@@ -25,7 +25,7 @@ import { garble } from "./core/utils/splash.js";
 import { resetStatusBarStore } from "./stores/statusbar.js";
 import { resetUIStore } from "./stores/ui.js";
 import type { AppConfig } from "./types/index.js";
-import { copyToClipboard as nativeCopyToClipboard } from "./utils/clipboard.js";
+import { copyOsc52, copyToClipboard as nativeCopyToClipboard } from "./utils/clipboard.js";
 
 let exitSessionId: string | null = null;
 let renderer: Awaited<ReturnType<typeof CreateCliRenderer>> | null = null;
@@ -387,7 +387,7 @@ export async function start(opts: StartOptions): Promise<void> {
   installCtrlCGuard();
   r.console.onCopySelection = (text: string) => {
     if (!text || text.length === 0) return;
-    r.copyToClipboardOSC52(text);
+    if (!r.copyToClipboardOSC52(text)) copyOsc52(text);
     nativeCopyToClipboard(text);
     r.clearSelection();
   };

@@ -3,7 +3,7 @@ import { MouseButton } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useCallback } from "react";
 import { IS_WIN } from "../core/platform/index.js";
-import { copyToClipboard as nativeCopyToClipboard } from "../utils/clipboard.js";
+import { copyOsc52, copyToClipboard as nativeCopyToClipboard } from "../utils/clipboard.js";
 
 export interface CopySelectionHandlers {
   copySelection: () => boolean;
@@ -36,7 +36,13 @@ export function useCopySelection(): CopySelectionHandlers {
         focus?.getClipboardText && sel.selectedRenderables.includes(focus as never)
           ? focus.getClipboardText(text)
           : text;
-      renderer.copyToClipboardOSC52(clipboardText);
+      // The renderer's OSC-52 path silently no-ops when terminal capability
+      // detection didn't report osc52 support — common over SSH (PowerShell /
+      // Tabby → sshd), where capability queries get lost. Fall back to writing
+      // the escape sequence directly to stdout, like opencode does. Native
+      // copy still runs, but over SSH it only reaches the REMOTE clipboard
+      // (or fails without a display), so OSC-52 is the only path home.
+      if (!renderer.copyToClipboardOSC52(clipboardText)) copyOsc52(clipboardText);
       nativeCopyToClipboard(clipboardText);
       if (clear) renderer.clearSelection();
       return true;

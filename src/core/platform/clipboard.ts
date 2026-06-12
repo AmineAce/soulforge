@@ -52,11 +52,17 @@ function trySpawn(cmd: string, args: string[], text: string): boolean {
 // ── Text write ──────────────────────────────────────────────
 
 function writeWindowsText(text: string): boolean {
-  // clip.exe is always present on Win10+ and is ~6x faster than PowerShell.
-  if (trySpawn("clip", [], text)) return true;
-  // Fallback to PowerShell Set-Clipboard if clip.exe is unavailable.
+  // clip.exe is always present on Win10+ and ~6x faster than PowerShell —
+  // but it decodes stdin with the console codepage, so it's only safe for
+  // ASCII payloads. Non-ASCII goes through the base64 PowerShell path.
+  if (isAsciiOnly(text) && trySpawn("clip", [], text)) return true;
+  const ps = resolveWindowsPowerShell();
+  if (!ps) return false;
+  if (text.length <= PS_ARG_SAFE_LIMIT && psSetClipboardBase64(ps, text)) return true;
+  // Oversized payload — stdin pipe is the only option; accept possible
+  // mojibake on exotic codepages rather than dropping the copy entirely.
   return trySpawn(
-    "powershell",
+    ps,
     ["-NoProfile", "-NonInteractive", "-Command", "$input | Set-Clipboard"],
     text,
   );
@@ -77,6 +83,20 @@ function writeLinuxText(text: string): boolean {
       ];
   for (const [cmd, args] of backends) {
     if (trySpawn(cmd, args, text)) return true;
+  }
+  // WSL without a display server (or SSH into WSL): reach the Windows host
+  // clipboard through interop. clip.exe is fast; PowerShell handles UTF-8
+  // correctly when fed via stdin with the right input encoding.
+  if (isWSL()) {
+    if (isAsciiOnly(text) && trySpawn("clip.exe", [], text)) return true;
+    if (text.length <= PS_ARG_SAFE_LIMIT && psSetClipboardBase64("powershell.exe", text)) {
+      return true;
+    }
+    return trySpawn(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", "$input | Set-Clipboard"],
+      text,
+    );
   }
   return false;
 }
@@ -107,7 +127,7 @@ function readImageDarwin(): Promise<ClipboardImage | null> {
   const script = [
     "try",
     "  set pngData to the clipboard as «class PNGf»",
-    `  set filePath to POSIX file "${tmpFile.replace(/"/g, '\\"').replace(/\\/g, "\\\\")}"`,
+    `  set filePath to POSIX file "${tmpFile.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
     "  set fileRef to open for access filePath with write permission",
     "  set eof fileRef to 0",
     "  write pngData to fileRef",
@@ -140,32 +160,86 @@ function readImageDarwin(): Promise<ClipboardImage | null> {
   });
 }
 
-function readImageLinux(): Promise<ClipboardImage | null> {
+function readImageViaBackend(cmd: string, args: string[]): Promise<Buffer | null> {
   return new Promise((resolve) => {
     execFile(
-      "xclip",
-      ["-selection", "clipboard", "-t", "image/png", "-o"],
+      cmd,
+      args,
       { timeout: 3000, maxBuffer: 20 * 1024 * 1024, encoding: "buffer" },
       (err, stdout) => {
         if (!err && stdout && (stdout as Buffer).length > 0) {
-          resolve({ data: stdout as Buffer, mediaType: "image/png" });
+          resolve(stdout as Buffer);
           return;
         }
-        execFile(
-          "wl-paste",
-          ["--type", "image/png"],
-          { timeout: 3000, maxBuffer: 20 * 1024 * 1024, encoding: "buffer" },
-          (err2, stdout2) => {
-            if (!err2 && stdout2 && (stdout2 as Buffer).length > 0) {
-              resolve({ data: stdout2 as Buffer, mediaType: "image/png" });
-              return;
-            }
-            resolve(null);
-          },
-        );
+        resolve(null);
       },
     );
   });
+}
+
+/**
+ * One-shot PowerShell image read via Windows interop — used from WSL where
+ * the clipboard lives on the Windows host and xclip/wl-paste can't see it.
+ * Pays the PS cold-start per read (~1-2s) but it's the only path that works
+ * on headless WSL / SSH-into-WSL. Base64 over stdout, same approach as the
+ * Win32 daemon protocol.
+ */
+function readImageWindowsInterop(): Promise<ClipboardImage | null> {
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "Add-Type -AssemblyName System.Drawing",
+    "$img = [System.Windows.Forms.Clipboard]::GetImage()",
+    "if ($img) {",
+    "  $ms = New-Object System.IO.MemoryStream",
+    "  $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)",
+    "  [Console]::Out.Write([Convert]::ToBase64String($ms.ToArray()))",
+    "}",
+  ].join("\n");
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-STA", "-Command", script],
+      { timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
+      (err, stdout) => {
+        const b64 = (stdout ?? "").toString().trim();
+        if (err || b64.length === 0) {
+          resolve(null);
+          return;
+        }
+        try {
+          const data = Buffer.from(b64, "base64");
+          resolve(data.length > 0 ? { data, mediaType: "image/png" } : null);
+        } catch {
+          resolve(null);
+        }
+      },
+    );
+  });
+}
+
+async function readImageLinux(): Promise<ClipboardImage | null> {
+  // Match the session type to the backend — querying xclip on Wayland
+  // (or wl-paste on X11) wastes the 3s timeout before the right one runs.
+  const wayland = !!process.env.WAYLAND_DISPLAY;
+  const xclipArgs = ["-selection", "clipboard", "-t", "image/png", "-o"];
+  const wlArgs = ["--type", "image/png"];
+  const backends: [string, string[]][] = wayland
+    ? [
+        ["wl-paste", wlArgs],
+        ["xclip", xclipArgs],
+      ]
+    : [
+        ["xclip", xclipArgs],
+        ["wl-paste", wlArgs],
+      ];
+  for (const [cmd, args] of backends) {
+    const data = await readImageViaBackend(cmd, args);
+    if (data) return { data, mediaType: "image/png" };
+  }
+  // WSL: the image is on the Windows host clipboard — interop is the only way.
+  if (isWSL()) return readImageWindowsInterop();
+  return null;
 }
 
 /**
@@ -465,4 +539,51 @@ export function readClipboardImage(): Promise<ClipboardImage | null> {
   return promise.finally(() => {
     inFlightImage = undefined;
   });
+}
+let _isWSL: boolean | null = null;
+
+/**
+ * WSL detection — IS_LINUX is true inside WSL, but the user's clipboard
+ * lives on the Windows host. Native Linux backends (wl-copy/xclip/xsel)
+ * only work when a display server is attached (WSLg); on headless WSL or
+ * over SSH-into-WSL they fail. Windows interop binaries (clip.exe,
+ * powershell.exe) are reachable from inside WSL and hit the host clipboard.
+ */
+export function isWSL(): boolean {
+  if (_isWSL !== null) return _isWSL;
+  if (process.platform !== "linux") {
+    _isWSL = false;
+    return false;
+  }
+  if (process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP) {
+    _isWSL = true;
+    return true;
+  }
+  try {
+    _isWSL = readFileSync("/proc/version", "utf-8").toLowerCase().includes("microsoft");
+  } catch {
+    _isWSL = false;
+  }
+  return _isWSL;
+}
+/**
+ * Write text via PowerShell without stdin encoding hazards.
+ *
+ * clip.exe and `$input | Set-Clipboard` both decode stdin with the active
+ * console codepage (typically cp437/cp1252, NOT UTF-8) — non-ASCII text
+ * gets mojibake'd. Encoding the payload as base64 in the argument string
+ * sidesteps stdin entirely; UTF8.GetString decodes it losslessly.
+ * Windows argv limit is ~32k chars — callers gate on payload size.
+ */
+function psSetClipboardBase64(exe: string, text: string): boolean {
+  const b64 = Buffer.from(text, "utf-8").toString("base64");
+  const cmd = `Set-Clipboard -Value ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')))`;
+  return trySpawn(exe, ["-NoProfile", "-NonInteractive", "-Command", cmd], "");
+}
+
+const PS_ARG_SAFE_LIMIT = 16_000; // base64 of this stays under the ~32k argv cap
+
+function isAsciiOnly(text: string): boolean {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberate ASCII probe
+  return /^[\x00-\x7F]*$/.test(text);
 }
