@@ -2,6 +2,7 @@ import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
+import { useMarqueeScroll } from "../../hooks/useMarqueeScroll.js";
 import type { ConfigScope } from "../layout/shared.js";
 import { CONFIG_SCOPES } from "../layout/shared.js";
 import { KeyCap, PremiumPopup, SegmentedControl, Toggle } from "../ui/index.js";
@@ -136,6 +137,13 @@ function OptionRow({
   textFaint,
   successColor,
 }: OptionRowProps) {
+  // Active row scrolls its description marquee-style instead of hard-cutting it;
+  // inactive rows show the static ellipsised form. Called before the separator
+  // early-return so hook order stays stable.
+  const descMaxWidth = innerW - 10;
+  const descActive = isActive && option.disabled !== true && option.kind !== "separator";
+  const descText = useMarqueeScroll(option.description ?? "", descMaxWidth, descActive);
+
   if (option.kind === "separator") {
     return (
       <box flexDirection="row" backgroundColor={popupBg} paddingX={1}>
@@ -187,9 +195,7 @@ function OptionRow({
           <text bg={bg} fg={isDisabled ? textFaint : isActive ? textSecondary : textMuted} truncate>
             {"    "}
             {option.icon ? "  " : ""}
-            {option.description.length > innerW - 10
-              ? `${option.description.slice(0, innerW - 13)}…`
-              : option.description}
+            {descText}
           </text>
         </box>
       )}
